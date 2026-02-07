@@ -8,7 +8,12 @@ const nextConfig = {
 const withMDX = createMDX({
   extension: /\.(md|mdx)$/,
   options: {
-    remarkPlugins: ["remark-gfm", "remark-github-blockquote-alert"],
+    remarkPlugins: [
+      "remark-gfm",
+      "remark-frontmatter",
+      "remark-mdx-frontmatter",
+      "remark-github-blockquote-alert",
+    ],
     rehypePlugins: ["rehype-highlight"],
   },
 });
