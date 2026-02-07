@@ -64,11 +64,7 @@ const components: MDXComponents = {
       {...props}
     />
   ),
-
-  // Horizontal rule
   hr: (props) => <hr className="my-8 border-t-2 border-gray-300" {...props} />,
-
-  // Tables
   table: (props) => (
     <div className="overflow-x-auto mb-6">
       <table
