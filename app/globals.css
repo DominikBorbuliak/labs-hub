@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "highlight.js/styles/github-dark.css";
 @import "remark-github-blockquote-alert/alert.css";
+@plugin "@tailwindcss/typography";
 
 :root {
   --background: #ffffff;
