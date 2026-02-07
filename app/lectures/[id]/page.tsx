@@ -6,7 +6,11 @@ export default async function Page({
   const { id } = await params;
   const { default: Lecture } = await import(`@/content/lectures/${id}.mdx`);
 
-  return <Lecture />;
+  return (
+    <article className="prose prose-lg max-w-4xl mx-auto px-4 py-8">
+      <Lecture />
+    </article>
+  );
 }
 
 export function generateStaticParams() {
