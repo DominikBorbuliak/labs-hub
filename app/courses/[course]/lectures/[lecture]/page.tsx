@@ -1,4 +1,43 @@
 import type { Metadata } from "next";
+import fs from "node:fs";
+import path from "node:path";
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ course: string; lecture: string }>;
+}): Promise<Metadata> {
+  const { course, lecture } = await params;
+  const { frontmatter } = await import(
+    `@/content/lectures/${course}/${lecture}.mdx`
+  );
+
+  return {
+    title: frontmatter?.title,
+    description: frontmatter?.description,
+  };
+}
+
+export function generateStaticParams() {
+  const lecturesDir = path.join(process.cwd(), "content/lectures");
+  const courses = fs
+    .readdirSync(lecturesDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name);
+
+  return courses.flatMap((course) => {
+    const courseDir = path.join(lecturesDir, course);
+    return fs
+      .readdirSync(courseDir)
+      .filter((file) => file.endsWith(".mdx"))
+      .map((file) => ({
+        course,
+        lecture: file.replace(/\.mdx$/, ""),
+      }));
+  });
+}
+
+export const dynamicParams = false;
 
 export default async function Page({
   params,
@@ -65,25 +104,3 @@ export default async function Page({
     </article>
   );
 }
-
-export async function generateMetadata({
-  params,
-}: {
-  params: Promise<{ course: string; lecture: string }>;
-}): Promise<Metadata> {
-  const { course, lecture } = await params;
-  const { frontmatter } = await import(
-    `@/content/lectures/${course}/${lecture}.mdx`
-  );
-
-  return {
-    title: frontmatter?.title,
-    description: frontmatter?.description,
-  };
-}
-
-export function generateStaticParams() {
-  return [{ course: "pb178", lecture: "test-lecture" }];
-}
-
-export const dynamicParams = false;
