@@ -86,11 +86,13 @@ const components: MDXComponents = {
     <td className="border border-gray-300 px-4 py-2 text-gray-800" {...props} />
   ),
   img: (props) => {
-    const { alt, ...rest } = props;
+    const { alt, width, height, ...rest } = props;
 
     return (
       <Image
         alt={alt}
+        width={Number(width) || 800}
+        height={Number(height) || 400}
         className="rounded-lg shadow-md"
         style={{ width: "100%", height: "auto" }}
         {...(rest as Omit<ImageProps, "alt">)}
