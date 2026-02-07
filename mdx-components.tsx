@@ -1,5 +1,5 @@
 import type { MDXComponents } from "mdx/types";
-import Image from "next/image";
+import Image, { ImageProps } from "next/image";
 
 const components: MDXComponents = {
   h1: (props) => (
@@ -86,21 +86,14 @@ const components: MDXComponents = {
     <td className="border border-gray-300 px-4 py-2 text-gray-800" {...props} />
   ),
   img: (props) => {
-    const { alt, src, width, height, ...rest } = props;
-
-    const imgWidth = width ? Number(width) : 200;
-    const imgHeight = height ? Number(height) : 200;
+    const { alt, ...rest } = props;
 
     return (
       <Image
-        src={src || ""}
-        alt={alt || ""}
-        width={imgWidth}
-        height={imgHeight}
+        alt={alt}
         className="rounded-lg shadow-md"
         style={{ width: "100%", height: "auto" }}
-        unoptimized
-        {...rest}
+        {...(rest as Omit<ImageProps, "alt">)}
       />
     );
   },
