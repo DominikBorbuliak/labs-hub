@@ -61,7 +61,7 @@ const Page = async ({
     `@/content/lectures/${course}/${lecture}.mdx`
   );
   const courseMeta = getCourse(course);
-  const courseTitle = courseMeta?.title ?? course.toUpperCase();
+  const courseTitle = courseMeta?.code ?? course.toUpperCase();
 
   return (
     <article className="prose prose-lg dark:prose-invert max-w-5xl mx-auto">

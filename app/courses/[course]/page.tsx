@@ -13,7 +13,7 @@ export const generateMetadata = async ({
 }): Promise<Metadata> => {
   const { course } = await params;
   const courseMeta = getCourse(course);
-  const title = courseMeta?.title ?? course.toUpperCase();
+  const title = courseMeta?.code ?? course.toUpperCase();
   const name = courseMeta?.name ?? "";
 
   return {
@@ -40,7 +40,7 @@ const CoursePage = async ({
   const { course } = await params;
   const lectures = await getCourseLectures(course);
   const courseMeta = getCourse(course);
-  const courseTitle = courseMeta?.title ?? course.toUpperCase();
+  const courseTitle = courseMeta?.code ?? course.toUpperCase();
 
   return (
     <div className="max-w-5xl mx-auto">
