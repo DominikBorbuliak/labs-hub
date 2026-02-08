@@ -60,8 +60,8 @@ const Page = async ({
   const { default: Lecture, frontmatter } = await import(
     `@/content/lectures/${course}/${lecture}.mdx`
   );
-  const courseMeta = getCourse(course);
-  const courseTitle = courseMeta?.code ?? course.toUpperCase();
+  const courseMetadata = getCourse(course);
+  const courseTitle = courseMetadata?.code ?? course.toUpperCase();
 
   return (
     <article className="prose prose-lg dark:prose-invert max-w-5xl mx-auto">
