@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import type { LectureMeta } from "@/lib/lectures";
+import type { LectureMetadata } from "@/lib/lectures";
 import { CalendarDays, Lock } from "lucide-react";
 
 function isInRange(from: string, to: string): boolean {
@@ -36,7 +36,7 @@ export function LectureCard({
   lecture,
   course,
 }: {
-  lecture: LectureMeta;
+  lecture: LectureMetadata;
   course: string;
 }) {
   const available = isAvailable(lecture.availableFrom);

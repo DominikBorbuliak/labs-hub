@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 
-export interface LectureMeta {
+export type LectureMetadata = {
   slug: string;
   title: string;
   description: string;
@@ -10,11 +10,11 @@ export interface LectureMeta {
   recommendedStudyTo: string;
   availableFrom: string;
   tags: string[];
-}
+};
 
 export async function getCourseLectures(
   course: string
-): Promise<LectureMeta[]> {
+): Promise<LectureMetadata[]> {
   const lecturesDir = path.join(process.cwd(), "content/lectures", course);
   const files = fs
     .readdirSync(lecturesDir)
@@ -35,7 +35,7 @@ export async function getCourseLectures(
         recommendedStudyTo: frontmatter.recommendedStudyTo,
         availableFrom: frontmatter.availableFrom,
         tags: frontmatter.tags ?? [],
-      } satisfies LectureMeta;
+      } satisfies LectureMetadata;
     })
   );
 

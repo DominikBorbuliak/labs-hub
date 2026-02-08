@@ -9,12 +9,11 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb";
 
-export interface BreadcrumbEntry {
-  label: string;
-  href?: string;
-}
+export type AppBreadcrumbsProps = {
+  items: { label: string; href?: string }[];
+};
 
-export function AppBreadcrumbs({ items }: { items: BreadcrumbEntry[] }) {
+export function AppBreadcrumbs({ items }: AppBreadcrumbsProps) {
   if (items.length === 0) return null;
 
   return (

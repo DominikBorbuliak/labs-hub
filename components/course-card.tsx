@@ -7,9 +7,9 @@ import {
   CardFooter,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { CourseMeta } from "@/lib/courses";
+import type { CourseMetadata } from "@/lib/courses";
 
-export function CourseCard({ course }: { course: CourseMeta }) {
+export function CourseCard({ course }: { course: CourseMetadata }) {
   return (
     <Link href={`/courses/${course.slug}`} className="no-underline">
       <Card className="flex flex-col justify-between transition-shadow hover:shadow-md cursor-pointer h-full">
