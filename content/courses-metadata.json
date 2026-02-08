@@ -1,8 +1,8 @@
 [
   {
-    "slug": "pb178",
-    "title": "PB178",
-    "name": "Turnstile Administration",
-    "semester": "Spring 2026"
+    "slug": "example",
+    "code": "Example",
+    "name": "Showcase course",
+    "semester": "All"
   }
 ]

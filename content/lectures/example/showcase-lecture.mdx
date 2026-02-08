@@ -1,0 +1,184 @@
+---
+title: "MDX Element Showcase"
+description: "A complete showcase of every available MDX element and formatting option supported in lectures."
+order: 1
+recommendedStudyFrom: "2026-02-09"
+recommendedStudyTo: "2026-02-15"
+availableFrom: "2026-02-08"
+tags:
+  - showcase
+  - mdx
+  - reference
+---
+
+# Overview
+
+This lecture demonstrates every supported MDX element. Use it as a reference when authoring new content.
+
+## Text Formatting
+
+Regular paragraph text. You can apply **bold**, _italic_, **_bold italic_**, and `inline code` formatting. Combine them freely: **bold with `inline code`** or _italic with a [link](https://example.com)_.
+
+~~Strikethrough text~~ is also supported through GitHub Flavored Markdown.
+
+## Headings
+
+All six heading levels are available. Heading 1 is used for the page title above, and the remaining levels are shown below.
+
+### Heading Level 3
+
+#### Heading Level 4
+
+##### Heading Level 5
+
+###### Heading Level 6
+
+## Links
+
+Inline links: [MDX Documentation](https://mdxjs.com/)
+
+Reference-style links: [GitHub][gh] and [NPM][npm]
+
+[gh]: https://github.com
+[npm]: https://npmjs.com
+
+## Lists
+
+### Unordered List
+
+- First item
+- Second item with **bold** and `code`
+- Third item with nested children
+  - Nested item A
+  - Nested item B
+    - Deeply nested item
+- Fourth item
+
+### Ordered List
+
+1. Define requirements
+2. Design the architecture
+3. Implement the solution
+4. Write tests and validate
+
+### Task List
+
+- [x] Headings
+- [x] Text formatting
+- [x] Lists
+- [ ] Still more to showcase below
+
+## Blockquotes
+
+> A blockquote is useful for calling out quoted material or general emphasis. You can include **bold**, _italic_, and `code` inside blockquotes.
+
+## Alert Boxes
+
+Five alert variants are available using GitHub-style blockquote syntax.
+
+> [!NOTE]
+> Use notes to highlight information readers should be aware of, even when skimming.
+
+> [!TIP]
+> Tips provide optional advice that helps the reader be more successful.
+
+> [!IMPORTANT]
+> Important alerts convey crucial information necessary for the reader to succeed.
+
+> [!WARNING]
+> Warnings demand immediate attention due to potential risks or pitfalls.
+
+> [!CAUTION]
+> Caution alerts describe negative consequences of a particular action.
+
+## Tables
+
+| Element     | Syntax         | Renders As |
+| ----------- | -------------- | ---------- |
+| Bold        | `**text**`     | **text**   |
+| Italic      | `_text_`       | _text_     |
+| Inline code | `` `code` ``   | `code`     |
+| Link        | `[label](url)` | [label](#) |
+| Image       | `![alt](src)`  | _(image)_  |
+
+## Code Blocks
+
+Syntax-highlighted code blocks are supported for several languages.
+
+```typescript
+interface Lecture {
+  title: string;
+  order: number;
+  tags: string[];
+}
+
+function summarize(lecture: Lecture): string {
+  return `${lecture.title} (${lecture.tags.join(", ")})`;
+}
+```
+
+```python
+from dataclasses import dataclass
+
+@dataclass
+class Lecture:
+    title: str
+    order: int
+    tags: list[str]
+
+    def summarize(self) -> str:
+        return f"{self.title} ({', '.join(self.tags)})"
+```
+
+```csharp
+public record Lecture(string Title, int Order, string[] Tags)
+{
+    public string Summarize()
+        => $"{Title} ({string.Join(", ", Tags)})";
+}
+```
+
+```bash
+# Build and start the development server
+npm install && npm run dev
+```
+
+```json
+{
+  "title": "MDX Element Showcase",
+  "order": 1,
+  "tags": ["showcase", "mdx", "reference"]
+}
+```
+
+```css
+.lecture-card {
+  padding: 1rem;
+  border-radius: 0.5rem;
+  background: var(--card);
+  border: 1px solid var(--border);
+}
+```
+
+## Images
+
+![Placeholder image](https://upload.wikimedia.org/wikipedia/commons/7/7d/Microsoft_.NET_logo.svg)
+
+## Horizontal Rules
+
+Content above the rule.
+
+---
+
+Content below the rule.
+
+## Mixed Content
+
+A paragraph that combines everything: **bold**, _italic_, ~~strikethrough~~, `inline code`, and a [link](https://example.com) — all in one sentence.
+
+> [!TIP]
+> When writing lectures, combine elements naturally. Readers benefit from varied formatting that highlights what matters most.
+
+---
+
+_End of showcase._

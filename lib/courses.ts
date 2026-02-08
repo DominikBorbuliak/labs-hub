@@ -3,7 +3,7 @@ import path from "node:path";
 
 export type CourseMetadata = {
   slug: string;
-  title: string;
+  code: string;
   name: string;
   semester: string;
 };
