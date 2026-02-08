@@ -2,7 +2,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 export default function Loading() {
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+    <div className="max-w-5xl mx-auto">
       <Skeleton className="h-5 w-48 mb-4" />
       <Skeleton className="h-9 w-32 mb-6" />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
@@ -18,6 +18,6 @@ export default function Loading() {
           </div>
         ))}
       </div>
-    </main>
+    </div>
   );
 }

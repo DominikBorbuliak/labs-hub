@@ -6,13 +6,13 @@ export default function CoursesPage() {
   const courses = getCourses();
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+    <div className="max-w-5xl mx-auto">
       <AppBreadcrumbs items={[{ label: "Courses" }]} />
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {courses.map((course) => (
           <CourseCard key={course.slug} course={course} />
         ))}
       </div>
-    </main>
+    </div>
   );
 }

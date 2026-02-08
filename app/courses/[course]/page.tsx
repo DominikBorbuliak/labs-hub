@@ -26,7 +26,7 @@ export default async function CoursePage({
   const courseTitle = courseMeta?.title ?? course.toUpperCase();
 
   return (
-    <main className="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+    <div className="max-w-5xl mx-auto">
       <AppBreadcrumbs
         items={[{ label: "Courses", href: "/courses" }, { label: courseTitle }]}
       />
@@ -35,6 +35,6 @@ export default async function CoursePage({
           <LectureCard key={lecture.slug} lecture={lecture} course={course} />
         ))}
       </div>
-    </main>
+    </div>
   );
 }
