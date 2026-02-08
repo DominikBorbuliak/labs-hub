@@ -14,7 +14,7 @@ export const CourseCard = ({ course }: { course: CourseMetadata }) => {
     <Link href={`/courses/${course.slug}`} className="no-underline">
       <Card className="flex flex-col justify-between transition-shadow hover:shadow-md cursor-pointer h-full">
         <CardHeader>
-          <CardTitle>{course.title}</CardTitle>
+          <CardTitle>{course.code}</CardTitle>
           <CardDescription>{course.name}</CardDescription>
         </CardHeader>
         <CardFooter>

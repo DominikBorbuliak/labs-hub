@@ -12,9 +12,9 @@ export const generateMetadata = async ({
   params: Promise<{ course: string }>;
 }): Promise<Metadata> => {
   const { course } = await params;
-  const courseMeta = getCourse(course);
-  const title = courseMeta?.title ?? course.toUpperCase();
-  const name = courseMeta?.name ?? "";
+  const courseMetadata = getCourse(course);
+  const title = courseMetadata?.code ?? course.toUpperCase();
+  const name = courseMetadata?.name ?? "";
 
   return {
     title,
@@ -39,8 +39,8 @@ const CoursePage = async ({
 }) => {
   const { course } = await params;
   const lectures = await getCourseLectures(course);
-  const courseMeta = getCourse(course);
-  const courseTitle = courseMeta?.title ?? course.toUpperCase();
+  const courseMetadata = getCourse(course);
+  const courseTitle = courseMetadata?.code ?? course.toUpperCase();
 
   return (
     <div className="max-w-5xl mx-auto">
