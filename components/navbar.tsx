@@ -15,7 +15,7 @@ import { ThemeToggle } from "@/components/theme-toggle";
 
 const navLinks = [{ href: "/courses", label: "Courses" }];
 
-export function Navbar() {
+export const Navbar = () => {
   const [open, setOpen] = useState(false);
 
   return (
@@ -69,4 +69,4 @@ export function Navbar() {
       </div>
     </header>
   );
-}
+};

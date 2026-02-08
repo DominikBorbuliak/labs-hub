@@ -31,6 +31,13 @@ const eslintConfig = defineConfig([
       ],
       "prefer-const": "error",
       "no-var": "error",
+      "prefer-arrow-callback": "error",
+    },
+  },
+  {
+    ignores: ["components/ui/**"],
+    rules: {
+      "func-style": ["error", "expression"],
     },
   },
   globalIgnores([

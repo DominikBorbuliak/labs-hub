@@ -7,19 +7,19 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CalendarDays } from "lucide-react";
 
-function formatDate(dateStr: string): string {
+const formatDate = (dateStr: string): string => {
   return new Date(dateStr).toLocaleDateString("en-US", {
     month: "long",
     day: "numeric",
     year: "numeric",
   });
-}
+};
 
-export async function generateMetadata({
+export const generateMetadata = async ({
   params,
 }: {
   params: Promise<{ course: string; lecture: string }>;
-}): Promise<Metadata> {
+}): Promise<Metadata> => {
   const { course, lecture } = await params;
   const { frontmatter } = await import(
     `@/content/lectures/${course}/${lecture}.mdx`
@@ -29,9 +29,9 @@ export async function generateMetadata({
     title: frontmatter?.title,
     description: frontmatter?.description,
   };
-}
+};
 
-export function generateStaticParams() {
+export const generateStaticParams = () => {
   const lecturesDir = path.join(process.cwd(), "content/lectures");
   const courses = fs
     .readdirSync(lecturesDir, { withFileTypes: true })
@@ -48,15 +48,15 @@ export function generateStaticParams() {
         lecture: file.replace(/\.mdx$/, ""),
       }));
   });
-}
+};
 
 export const dynamicParams = false;
 
-export default async function Page({
+const Page = async ({
   params,
 }: {
   params: Promise<{ course: string; lecture: string }>;
-}) {
+}) => {
   const { course, lecture } = await params;
   const { default: Lecture, frontmatter } = await import(
     `@/content/lectures/${course}/${lecture}.mdx`
@@ -124,4 +124,6 @@ export default async function Page({
       <Lecture />
     </article>
   );
-}
+};
+
+export default Page;

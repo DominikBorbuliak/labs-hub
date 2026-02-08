@@ -13,7 +13,7 @@ export type AppBreadcrumbsProps = {
   items: { label: string; href?: string }[];
 };
 
-export function AppBreadcrumbs({ items }: AppBreadcrumbsProps) {
+export const AppBreadcrumbs = ({ items }: AppBreadcrumbsProps) => {
   if (items.length === 0) return null;
 
   return (
@@ -39,4 +39,4 @@ export function AppBreadcrumbs({ items }: AppBreadcrumbsProps) {
       </BreadcrumbList>
     </Breadcrumb>
   );
-}
+};

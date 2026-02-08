@@ -12,9 +12,9 @@ export type LectureMetadata = {
   tags: string[];
 };
 
-export async function getCourseLectures(
+export const getCourseLectures = async (
   course: string
-): Promise<LectureMetadata[]> {
+): Promise<LectureMetadata[]> => {
   const lecturesDir = path.join(process.cwd(), "content/lectures", course);
   const files = fs
     .readdirSync(lecturesDir)
@@ -40,4 +40,4 @@ export async function getCourseLectures(
   );
 
   return lectures.sort((a, b) => a.order - b.order);
-}
+};

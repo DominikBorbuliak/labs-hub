@@ -13,32 +13,32 @@ import { cn } from "@/lib/utils";
 import type { LectureMetadata } from "@/lib/lectures";
 import { CalendarDays, Lock } from "lucide-react";
 
-function isInRange(from: string, to: string): boolean {
+const isInRange = (from: string, to: string): boolean => {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   return now >= new Date(from) && now <= new Date(to);
-}
+};
 
-function isAvailable(availableFrom: string): boolean {
+const isAvailable = (availableFrom: string): boolean => {
   const now = new Date();
   now.setHours(0, 0, 0, 0);
   return now >= new Date(availableFrom);
-}
+};
 
-function formatDate(dateStr: string): string {
+const formatDate = (dateStr: string): string => {
   return new Date(dateStr).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
   });
-}
+};
 
-export function LectureCard({
+export const LectureCard = ({
   lecture,
   course,
 }: {
   lecture: LectureMetadata;
   course: string;
-}) {
+}) => {
   const available = isAvailable(lecture.availableFrom);
   const inStudyRange = isInRange(
     lecture.recommendedStudyFrom,
@@ -96,4 +96,4 @@ export function LectureCard({
       {content}
     </Link>
   );
-}
+};

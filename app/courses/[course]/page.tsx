@@ -5,21 +5,21 @@ import { getCourse } from "@/lib/courses";
 import { LectureCard } from "@/components/lecture-card";
 import { AppBreadcrumbs } from "@/components/app-breadcrumbs";
 
-export function generateStaticParams() {
+export const generateStaticParams = () => {
   const lecturesDir = path.join(process.cwd(), "content/lectures");
   return fs
     .readdirSync(lecturesDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())
     .map((entry) => ({ course: entry.name }));
-}
+};
 
 export const dynamicParams = false;
 
-export default async function CoursePage({
+const CoursePage = async ({
   params,
 }: {
   params: Promise<{ course: string }>;
-}) {
+}) => {
   const { course } = await params;
   const lectures = await getCourseLectures(course);
   const courseMeta = getCourse(course);
@@ -37,4 +37,6 @@ export default async function CoursePage({
       </div>
     </div>
   );
-}
+};
+
+export default CoursePage;

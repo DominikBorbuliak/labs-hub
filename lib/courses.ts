@@ -8,12 +8,12 @@ export type CourseMetadata = {
   semester: string;
 };
 
-export function getCourses(): CourseMetadata[] {
+export const getCourses = (): CourseMetadata[] => {
   const filePath = path.join(process.cwd(), "content/courses-metadata.json");
   const raw = fs.readFileSync(filePath, "utf-8");
   return JSON.parse(raw) as CourseMetadata[];
-}
+};
 
-export function getCourse(slug: string): CourseMetadata | undefined {
+export const getCourse = (slug: string): CourseMetadata | undefined => {
   return getCourses().find((c) => c.slug === slug);
-}
+};
