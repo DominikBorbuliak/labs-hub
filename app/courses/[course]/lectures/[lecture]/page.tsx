@@ -21,6 +21,12 @@ export const generateMetadata = async ({
   return {
     title: frontmatter?.title,
     description: frontmatter?.description,
+    keywords: frontmatter?.tags,
+    openGraph: {
+      title: frontmatter?.title,
+      description: frontmatter?.description,
+      type: "article",
+    },
   };
 };
 

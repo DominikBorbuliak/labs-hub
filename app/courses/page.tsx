@@ -1,6 +1,12 @@
+import type { Metadata } from "next";
 import { getCourses } from "@/lib/courses";
 import { CourseCard } from "@/components/course-card";
 import { AppBreadcrumbs } from "@/components/app-breadcrumbs";
+
+export const metadata: Metadata = {
+  title: "Courses",
+  description: "Browse all available courses and their lectures on Labs Hub.",
+};
 
 export default function CoursesPage() {
   const courses = getCourses();

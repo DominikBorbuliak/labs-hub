@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { Menu } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -21,14 +22,17 @@ export const Navbar = () => {
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-backdrop-filter:bg-background/60">
       <div className="max-w-5xl mx-auto flex h-14 items-center justify-between px-4 sm:px-6 lg:px-8">
-        <Link href="/courses" className="flex items-center gap-2 text-lg font-bold tracking-tight">
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 32 32" className="shrink-0">
-            <rect width="32" height="32" rx="8" fill="#0f172a" />
-            <path d="M12 6h8v2h-1v6l5 8.5c.6 1 .1 2.5-1.2 2.5H9.2c-1.3 0-1.8-1.5-1.2-2.5L13 14V8h-1V6z" fill="none" stroke="#60a5fa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-            <circle cx="14" cy="19" r="1.2" fill="#60a5fa" />
-            <circle cx="18" cy="21" r="1" fill="#60a5fa" />
-            <circle cx="16" cy="17.5" r="0.8" fill="#60a5fa" />
-          </svg>
+        <Link
+          href="/courses"
+          className="flex items-center gap-2 text-lg font-bold tracking-tight"
+        >
+          <Image
+            src="/logo.svg"
+            alt="Labs Hub logo"
+            width={28}
+            height={28}
+            className="shrink-0"
+          />
           Labs Hub
         </Link>
 

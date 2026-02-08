@@ -1,9 +1,26 @@
+import type { Metadata } from "next";
 import fs from "node:fs";
 import path from "node:path";
 import { getCourseLectures } from "@/lib/lectures";
 import { getCourse } from "@/lib/courses";
 import { LectureCard } from "@/components/lecture-card";
 import { AppBreadcrumbs } from "@/components/app-breadcrumbs";
+
+export const generateMetadata = async ({
+  params,
+}: {
+  params: Promise<{ course: string }>;
+}): Promise<Metadata> => {
+  const { course } = await params;
+  const courseMeta = getCourse(course);
+  const title = courseMeta?.title ?? course.toUpperCase();
+  const name = courseMeta?.name ?? "";
+
+  return {
+    title,
+    description: `Lectures for ${title}${name ? ` – ${name}` : ""}. Browse available lectures and study materials.`,
+  };
+};
 
 export const generateStaticParams = () => {
   const lecturesDir = path.join(process.cwd(), "content/lectures");

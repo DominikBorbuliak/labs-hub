@@ -1,7 +1,26 @@
+import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/theme-provider";
 import { Navbar } from "@/components/navbar";
+
+export const metadata: Metadata = {
+  title: {
+    default: "Labs Hub",
+    template: "%s | Labs Hub",
+  },
+  description:
+    "Browse courses and lectures for your studies. Labs Hub provides organized access to course materials and recommended study schedules.",
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    siteName: "Labs Hub",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+};
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
