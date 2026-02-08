@@ -1,16 +1,25 @@
 import type { MDXComponents } from "mdx/types";
 import Image, { ImageProps } from "next/image";
+import {
+  Table,
+  TableHeader,
+  TableBody,
+  TableRow,
+  TableHead,
+  TableCell,
+} from "@/components/ui/table";
+import { Separator } from "@/components/ui/separator";
 
 const components: MDXComponents = {
   h1: ({ node: _node, ...props }) => (
     <h1
-      className="text-3xl font-bold mb-4 mt-6 pb-1.5 border-b-2 border-gray-200"
+      className="text-3xl font-bold mb-4 mt-6 pb-1.5 border-b-2 border-border"
       {...props}
     />
   ),
   h2: ({ node: _node, ...props }) => (
     <h2
-      className="text-2xl font-bold mb-3 mt-5 pb-1 border-b border-gray-200"
+      className="text-2xl font-bold mb-3 mt-5 pb-1 border-b border-border"
       {...props}
     />
   ),
@@ -27,10 +36,10 @@ const components: MDXComponents = {
     <h6 className="text-sm font-semibold mb-1 mt-2" {...props} />
   ),
   p: ({ node: _node, ...props }) => (
-    <p className="mb-3 leading-normal text-gray-800" {...props} />
+    <p className="mb-3 leading-normal text-foreground" {...props} />
   ),
   strong: ({ node: _node, ...props }) => (
-    <strong className="font-semibold text-gray-900" {...props} />
+    <strong className="font-semibold text-foreground" {...props} />
   ),
   em: ({ node: _node, ...props }) => <em className="italic" {...props} />,
   ul: ({ node: _node, ...props }) => (
@@ -44,7 +53,7 @@ const components: MDXComponents = {
   ),
   a: ({ node: _node, ...props }) => (
     <a
-      className="text-blue-600 hover:text-blue-800 hover:underline font-medium transition-colors"
+      className="text-primary hover:text-primary/80 hover:underline font-medium transition-colors"
       {...props}
     />
   ),
@@ -59,7 +68,7 @@ const components: MDXComponents = {
     }
     return (
       <code
-        className="bg-gray-50 text-gray-700 border border-gray-300 px-1.5 py-0.5 rounded text-sm font-mono"
+        className="bg-muted text-muted-foreground border border-border px-1.5 py-0.5 rounded-md text-sm font-mono"
         {...rest}
       >
         {children}
@@ -68,46 +77,27 @@ const components: MDXComponents = {
   },
   pre: ({ node: _node, ...props }) => (
     <pre
-      className="bg-gray-900 text-gray-100 p-3 rounded-lg overflow-x-auto mb-4 shadow-lg"
+      className="bg-primary text-primary-foreground p-3 rounded-lg overflow-x-auto mb-4 shadow-lg"
       {...props}
     />
   ),
   blockquote: ({ node: _node, ...props }) => (
     <blockquote
-      className="border-l-4 border-blue-500 bg-blue-50 pl-3 pr-3 py-1.5 italic my-4 text-gray-700"
+      className="border-l-4 border-primary bg-muted pl-3 pr-3 py-1.5 italic my-4 text-muted-foreground"
       {...props}
     />
   ),
   hr: ({ node: _node, ...props }) => (
-    <hr className="mt-5 mb-5 border-t border-gray-300" {...props} />
+    <Separator className="my-5" {...props} />
   ),
   table: ({ node: _node, ...props }) => (
-    <div className="overflow-x-auto mb-4">
-      <table
-        className="min-w-full border-collapse border border-gray-300"
-        {...props}
-      />
-    </div>
+    <Table className="mb-4" {...props} />
   ),
-  thead: ({ node: _node, ...props }) => (
-    <thead className="bg-gray-100" {...props} />
-  ),
-  tbody: ({ node: _node, ...props }) => <tbody {...props} />,
-  tr: ({ node: _node, ...props }) => (
-    <tr className="border-b border-gray-300" {...props} />
-  ),
-  th: ({ node: _node, ...props }) => (
-    <th
-      className="border border-gray-300 px-3 py-1.5 text-left font-semibold text-gray-900"
-      {...props}
-    />
-  ),
-  td: ({ node: _node, ...props }) => (
-    <td
-      className="border border-gray-300 px-3 py-1.5 text-gray-800"
-      {...props}
-    />
-  ),
+  thead: ({ node: _node, ...props }) => <TableHeader {...props} />,
+  tbody: ({ node: _node, ...props }) => <TableBody {...props} />,
+  tr: ({ node: _node, ...props }) => <TableRow {...props} />,
+  th: ({ node: _node, ...props }) => <TableHead {...props} />,
+  td: ({ node: _node, ...props }) => <TableCell {...props} />,
   img: ({ node: _node, ...props }) => {
     const { alt, width, height, ...rest } = props;
 
