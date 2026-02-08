@@ -3,17 +3,10 @@ import fs from "node:fs";
 import path from "node:path";
 import { getCourse } from "@/lib/courses";
 import { AppBreadcrumbs } from "@/components/app-breadcrumbs";
+import { LocalDate } from "@/components/local-date";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { CalendarDays } from "lucide-react";
-
-const formatDate = (dateStr: string): string => {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "long",
-    day: "numeric",
-    year: "numeric",
-  });
-};
 
 export const generateMetadata = async ({
   params,
@@ -81,7 +74,7 @@ const Page = async ({
             )}
             {frontmatter.availableFrom && (
               <span className="text-xs text-muted-foreground">
-                Available from {formatDate(frontmatter.availableFrom)}
+                Available from <LocalDate dateStr={frontmatter.availableFrom} />
               </span>
             )}
           </div>
@@ -100,13 +93,15 @@ const Page = async ({
               <p className="text-sm text-muted-foreground mt-3 flex items-center gap-1.5">
                 <CalendarDays className="size-4" />
                 Recommended study period:{" "}
-                <span className="font-medium text-foreground">
-                  {formatDate(frontmatter.recommendedStudyFrom)}
-                </span>
+                <LocalDate
+                  dateStr={frontmatter.recommendedStudyFrom}
+                  className="font-medium text-foreground"
+                />
                 {" – "}
-                <span className="font-medium text-foreground">
-                  {formatDate(frontmatter.recommendedStudyTo)}
-                </span>
+                <LocalDate
+                  dateStr={frontmatter.recommendedStudyTo}
+                  className="font-medium text-foreground"
+                />
               </p>
             )}
           {frontmatter.tags && (

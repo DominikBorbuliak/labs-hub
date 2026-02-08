@@ -12,24 +12,25 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import type { LectureMetadata } from "@/lib/lectures";
 import { CalendarDays, Lock } from "lucide-react";
+import { DateTime } from "luxon";
 
 const isInRange = (from: string, to: string): boolean => {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return now >= new Date(from) && now <= new Date(to);
+  const now = DateTime.utc().startOf("day");
+  return (
+    now >= DateTime.fromISO(from, { zone: "utc" }) &&
+    now <= DateTime.fromISO(to, { zone: "utc" })
+  );
 };
 
 const isAvailable = (availableFrom: string): boolean => {
-  const now = new Date();
-  now.setHours(0, 0, 0, 0);
-  return now >= new Date(availableFrom);
+  const now = DateTime.utc().startOf("day");
+  return now >= DateTime.fromISO(availableFrom, { zone: "utc" });
 };
 
 const formatDate = (dateStr: string): string => {
-  return new Date(dateStr).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+  return DateTime.fromISO(dateStr, { zone: "utc" })
+    .toLocal()
+    .toLocaleString({ month: "short", day: "numeric" });
 };
 
 export const LectureCard = ({
