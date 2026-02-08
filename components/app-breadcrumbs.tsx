@@ -14,7 +14,9 @@ export type AppBreadcrumbsProps = {
 };
 
 export const AppBreadcrumbs = ({ items }: AppBreadcrumbsProps) => {
-  if (items.length === 0) return null;
+  if (items.length === 0) {
+    return null;
+  }
 
   return (
     <Breadcrumb className="mb-4 not-prose">

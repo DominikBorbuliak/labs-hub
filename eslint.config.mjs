@@ -33,6 +33,7 @@ const eslintConfig = defineConfig([
       "no-var": "error",
       "prefer-arrow-callback": "error",
       "react/no-array-index-key": "error",
+      curly: "error",
     },
   },
   {
