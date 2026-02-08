@@ -1,5 +1,11 @@
 [
   {
+    "slug": "pb178-spring-2026",
+    "code": "PB178",
+    "name": "Introduction to Development in C#/.NET",
+    "semester": "Spring 2026"
+  },
+  {
     "slug": "example",
     "code": "Example",
     "name": "Showcase course",
