@@ -22,7 +22,7 @@ export const AppBreadcrumbs = ({ items }: AppBreadcrumbsProps) => {
         {items.map((item, i) => {
           const isLast = i === items.length - 1;
           return (
-            <React.Fragment key={i}>
+            <React.Fragment key={item.href ?? item.label}>
               {i > 0 && <BreadcrumbSeparator />}
               <BreadcrumbItem>
                 {isLast || !item.href ? (
