@@ -64,7 +64,7 @@ const Page = async ({
   const courseTitle = courseMeta?.title ?? course.toUpperCase();
 
   return (
-    <article className="prose prose-lg dark:prose-invert max-w-4xl mx-auto">
+    <article className="prose prose-lg dark:prose-invert max-w-5xl mx-auto">
       <AppBreadcrumbs
         items={[
           { label: "Courses", href: "/courses" },
