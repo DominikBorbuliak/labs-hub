@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "node scripts/generate-lecture-schedule.mjs && next dev",
     "build": "node scripts/generate-lecture-schedule.mjs && next build",
-    "start": "node scripts/generate-lecture-schedule.mjs && next start",
+    "start": "next start",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",

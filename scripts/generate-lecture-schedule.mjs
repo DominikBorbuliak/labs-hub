@@ -4,16 +4,16 @@ import { join } from "node:path";
 const lecturesDir = join(process.cwd(), "content/lectures");
 const schedule = {};
 
-for (const course of readdirSync(lecturesDir, { withFileTypes: true })) {
-  if (!course.isDirectory()) {
-    continue;
-  }
+const courses = readdirSync(lecturesDir, { withFileTypes: true })
+  .filter((d) => d.isDirectory())
+  .sort((a, b) => a.name.localeCompare(b.name));
 
-  for (const file of readdirSync(join(lecturesDir, course.name))) {
-    if (!file.endsWith(".mdx")) {
-      continue;
-    }
+for (const course of courses) {
+  const files = readdirSync(join(lecturesDir, course.name))
+    .filter((f) => f.endsWith(".mdx"))
+    .sort((a, b) => a.localeCompare(b));
 
+  for (const file of files) {
     const content = readFileSync(join(lecturesDir, course.name, file), "utf-8");
     const fm = content.match(/^---\s*\n([\s\S]*?)\n---/);
     const availableFrom = fm?.[1]?.match(
@@ -26,7 +26,11 @@ for (const course of readdirSync(lecturesDir, { withFileTypes: true })) {
   }
 }
 
+const sorted = Object.fromEntries(
+  Object.entries(schedule).sort(([a], [b]) => a.localeCompare(b))
+);
+
 writeFileSync(
   join(process.cwd(), "content/lecture-schedule.json"),
-  JSON.stringify(schedule, null, 2) + "\n"
+  JSON.stringify(sorted, null, 2) + "\n"
 );
