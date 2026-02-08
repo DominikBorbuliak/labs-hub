@@ -1,7 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getCourseLectures } from "@/lib/lectures";
+import { getCourse } from "@/lib/courses";
 import { LectureCard } from "@/components/lecture-card";
+import { AppBreadcrumbs } from "@/components/app-breadcrumbs";
 
 export function generateStaticParams() {
   const lecturesDir = path.join(process.cwd(), "content/lectures");
@@ -20,10 +22,18 @@ export default async function CoursePage({
 }) {
   const { course } = await params;
   const lectures = await getCourseLectures(course);
+  const courseMeta = getCourse(course);
+  const courseTitle = courseMeta?.title ?? course.toUpperCase();
 
   return (
     <main className="max-w-5xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-      <h1 className="text-3xl font-bold mb-6">{course.toUpperCase()}</h1>
+      <AppBreadcrumbs
+        items={[
+          { label: "Courses", href: "/courses" },
+          { label: courseTitle },
+        ]}
+      />
+      <h1 className="text-3xl font-bold mb-6">{courseTitle}</h1>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {lectures.map((lecture) => (
           <LectureCard key={lecture.slug} lecture={lecture} course={course} />

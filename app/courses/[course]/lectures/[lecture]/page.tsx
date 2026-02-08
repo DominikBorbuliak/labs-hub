@@ -1,6 +1,19 @@
 import type { Metadata } from "next";
 import fs from "node:fs";
 import path from "node:path";
+import { getCourse } from "@/lib/courses";
+import { AppBreadcrumbs } from "@/components/app-breadcrumbs";
+import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
+import { CalendarDays } from "lucide-react";
+
+function formatDate(dateStr: string): string {
+  return new Date(dateStr).toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 export async function generateMetadata({
   params,
@@ -48,56 +61,64 @@ export default async function Page({
   const { default: Lecture, frontmatter } = await import(
     `@/content/lectures/${course}/${lecture}.mdx`
   );
+  const courseMeta = getCourse(course);
+  const courseTitle = courseMeta?.title ?? course.toUpperCase();
 
   return (
     <article className="prose prose-lg max-w-4xl mx-auto px-4 py-8">
+      <AppBreadcrumbs
+        items={[
+          { label: "Courses", href: "/courses" },
+          { label: courseTitle, href: `/courses/${course}` },
+          { label: frontmatter?.title ?? lecture },
+        ]}
+      />
       {frontmatter && (
-        <header className="mb-8 border-b border-gray-200 pb-4">
+        <header className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             {frontmatter.order != null && (
-              <span className="bg-blue-600 text-white text-xs font-bold px-2.5 py-1 rounded-full">
-                Lecture {frontmatter.order}
-              </span>
+              <Badge>Lecture {frontmatter.order}</Badge>
             )}
             {frontmatter.availableFrom && (
-              <span className="text-xs text-gray-500">
-                Available from {frontmatter.availableFrom}
+              <span className="text-xs text-muted-foreground">
+                Available from {formatDate(frontmatter.availableFrom)}
               </span>
             )}
           </div>
           {frontmatter.title && (
-            <h1 className="text-3xl font-bold text-gray-900 mt-2 mb-2">
+            <h1 className="text-3xl font-bold mt-2 mb-2">
               {frontmatter.title}
             </h1>
           )}
           {frontmatter.description && (
-            <p className="text-gray-600 italic">{frontmatter.description}</p>
+            <p className="text-muted-foreground italic">
+              {frontmatter.description}
+            </p>
           )}
           {frontmatter.recommendedStudyFrom &&
             frontmatter.recommendedStudyTo && (
-              <p className="text-sm text-gray-500 mt-3">
-                📅 Recommended study period:{" "}
-                <span className="font-medium text-gray-700">
-                  {frontmatter.recommendedStudyFrom}
+              <p className="text-sm text-muted-foreground mt-3 flex items-center gap-1.5">
+                <CalendarDays className="size-4" />
+                Recommended study period:{" "}
+                <span className="font-medium text-foreground">
+                  {formatDate(frontmatter.recommendedStudyFrom)}
                 </span>
                 {" – "}
-                <span className="font-medium text-gray-700">
-                  {frontmatter.recommendedStudyTo}
+                <span className="font-medium text-foreground">
+                  {formatDate(frontmatter.recommendedStudyTo)}
                 </span>
               </p>
             )}
           {frontmatter.tags && (
             <div className="flex gap-2 mt-3 flex-wrap">
               {frontmatter.tags.map((tag: string) => (
-                <span
-                  key={tag}
-                  className="bg-gray-100 text-gray-700 text-xs px-2 py-1 rounded-full"
-                >
+                <Badge key={tag} variant="secondary">
                   {tag}
-                </span>
+                </Badge>
               ))}
             </div>
           )}
+          <Separator className="mt-4" />
         </header>
       )}
       <Lecture />
