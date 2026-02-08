@@ -87,12 +87,8 @@ const components: MDXComponents = {
       {...props}
     />
   ),
-  hr: ({ node: _node, ...props }) => (
-    <Separator className="my-5" {...props} />
-  ),
-  table: ({ node: _node, ...props }) => (
-    <Table className="mb-4" {...props} />
-  ),
+  hr: ({ node: _node, ...props }) => <Separator className="my-5" {...props} />,
+  table: ({ node: _node, ...props }) => <Table className="mb-4" {...props} />,
   thead: ({ node: _node, ...props }) => <TableHeader {...props} />,
   tbody: ({ node: _node, ...props }) => <TableBody {...props} />,
   tr: ({ node: _node, ...props }) => <TableRow {...props} />,
