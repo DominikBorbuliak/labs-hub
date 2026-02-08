@@ -101,7 +101,7 @@
   --accent: oklch(0.279 0.041 260.031);
   --accent-foreground: oklch(0.984 0.003 247.858);
   --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
+  --border: oklch(1 0 0 / 14%);
   --input: oklch(1 0 0 / 15%);
   --ring: oklch(0.551 0.027 264.364);
   --chart-1: oklch(0.488 0.243 264.376);
@@ -155,31 +155,56 @@
 }
 
 .markdown-alert-note {
-  background-color: rgb(219, 234, 254);
-  border-left-color: rgb(29, 78, 216);
+  background-color: rgb(219 234 254);
+  border-left-color: rgb(29 78 216);
 }
 
 .markdown-alert-tip {
-  background-color: rgb(220, 252, 231);
-  border-left-color: rgb(22, 101, 52);
+  background-color: rgb(220 252 231);
+  border-left-color: rgb(22 101 52);
 }
 
 .markdown-alert-important {
-  background-color: rgb(237, 233, 254);
-  border-left-color: rgb(109, 40, 217);
+  background-color: rgb(237 233 254);
+  border-left-color: rgb(109 40 217);
 }
 
 .markdown-alert-warning {
-  background-color: rgb(254, 249, 195);
-  border-left-color: rgb(133, 77, 14);
+  background-color: rgb(254 249 195);
+  border-left-color: rgb(133 77 14);
 }
 
 .markdown-alert-caution {
-  background-color: rgb(254, 226, 226);
-  border-left-color: rgb(220, 38, 38);
+  background-color: rgb(254 226 226);
+  border-left-color: rgb(220 38 38);
 }
 
-/* Alter task list item stylesa */
+.dark .markdown-alert-note {
+  background-color: rgb(29 78 216 / 0.15);
+  border-left-color: rgb(96 165 250);
+}
+
+.dark .markdown-alert-tip {
+  background-color: rgb(22 101 52 / 0.15);
+  border-left-color: rgb(74 222 128);
+}
+
+.dark .markdown-alert-important {
+  background-color: rgb(109 40 217 / 0.15);
+  border-left-color: rgb(167 139 250);
+}
+
+.dark .markdown-alert-warning {
+  background-color: rgb(133 77 14 / 0.15);
+  border-left-color: rgb(250 204 21);
+}
+
+.dark .markdown-alert-caution {
+  background-color: rgb(220 38 38 / 0.15);
+  border-left-color: rgb(248 113 113);
+}
+
+/* Alter task list item styles */
 .task-list-item {
   margin-top: 1px;
   margin-bottom: 1px;

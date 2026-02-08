@@ -53,7 +53,7 @@ const components: MDXComponents = {
   ),
   a: ({ node: _node, ...props }) => (
     <a
-      className="text-primary hover:text-primary/80 hover:underline font-medium transition-colors"
+      className="text-blue-600 dark:text-blue-400 hover:underline font-medium transition-colors"
       {...props}
     />
   ),
@@ -68,7 +68,7 @@ const components: MDXComponents = {
     }
     return (
       <code
-        className="bg-muted text-muted-foreground border border-border px-1.5 py-0.5 rounded-md text-sm font-mono"
+        className="bg-muted text-foreground border border-border/50 px-1.5 py-0.5 rounded-md text-sm font-mono"
         {...rest}
       >
         {children}
@@ -77,7 +77,7 @@ const components: MDXComponents = {
   },
   pre: ({ node: _node, ...props }) => (
     <pre
-      className="bg-primary text-primary-foreground p-3 rounded-lg overflow-x-auto mb-4 shadow-lg"
+      className="!bg-[#0d1117] !text-gray-100 p-3 rounded-lg overflow-x-auto mb-4 border-0"
       {...props}
     />
   ),

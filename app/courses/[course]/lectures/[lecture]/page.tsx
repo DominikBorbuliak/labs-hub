@@ -65,7 +65,7 @@ export default async function Page({
   const courseTitle = courseMeta?.title ?? course.toUpperCase();
 
   return (
-    <article className="prose prose-lg max-w-4xl mx-auto px-4 py-8">
+    <article className="prose prose-lg dark:prose-invert max-w-4xl mx-auto px-4 py-8">
       <AppBreadcrumbs
         items={[
           { label: "Courses", href: "/courses" },
