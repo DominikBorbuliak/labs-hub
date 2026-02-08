@@ -9,10 +9,7 @@ export interface CourseMeta {
 }
 
 export function getCourses(): CourseMeta[] {
-  const filePath = path.join(
-    process.cwd(),
-    "content/courses-metadata.json",
-  );
+  const filePath = path.join(process.cwd(), "content/courses-metadata.json");
   const raw = fs.readFileSync(filePath, "utf-8");
   return JSON.parse(raw) as CourseMeta[];
 }
