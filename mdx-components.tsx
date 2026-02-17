@@ -36,7 +36,7 @@ const components: MDXComponents = {
     <h6 className="text-sm font-semibold mb-1 mt-2" {...props} />
   ),
   p: ({ node: _node, ...props }) => (
-    <p className="mb-3 leading-normal text-foreground" {...props} />
+    <p className="mb-1 mt-1 leading-normal text-foreground" {...props} />
   ),
   strong: ({ node: _node, ...props }) => (
     <strong className="font-semibold text-foreground" {...props} />
@@ -54,6 +54,7 @@ const components: MDXComponents = {
   a: ({ node: _node, ...props }) => (
     <a
       className="text-blue-600 dark:text-blue-400 hover:underline font-medium transition-colors"
+      target="_blank"
       {...props}
     />
   ),
@@ -77,7 +78,7 @@ const components: MDXComponents = {
   },
   pre: ({ node: _node, ...props }) => (
     <pre
-      className="!bg-[#0d1117] !text-gray-100 p-3 rounded-lg overflow-x-auto mb-4 border-0"
+      className="bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto mb-4 border-0"
       {...props}
     />
   ),
