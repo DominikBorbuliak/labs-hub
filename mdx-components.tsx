@@ -78,7 +78,7 @@ const components: MDXComponents = {
   },
   pre: ({ node: _node, ...props }) => (
     <pre
-      className="!bg-[#0d1117] !text-gray-100 p-3 rounded-lg overflow-x-auto mb-4 border-0"
+      className="bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto mb-4 border-0"
       {...props}
     />
   ),
