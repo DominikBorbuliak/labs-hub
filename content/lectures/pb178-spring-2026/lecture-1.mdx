@@ -12,5 +12,130 @@ tags:
   - console
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. Who am I?
+2. Activity 1: OOP Revision Cards
+3. Development Environment Setup
+4. Course Organization
+5. Activity 2: Building a Console Memory Game (Pexeso)
+
+# Who am I?
+
+- **Dominik Borbuliak**
+- **Background**: PVA and SWE at MUNI FI
+- **Teaching Experience**: PV178, PV179
+- **Professional Experience**: ~6 years (first 4 years part-time)
+  - Currently working as a **Software Developer at Tricentis**
+- **Technical Focus**:
+  - Primarily backend development in **.NET with Azure cloud services**
+  - Frontend development with **React** and **ASP.NET MVC**
+
+> [!NOTE]
+> Don't hesitate to ask me anything! I'll try to answer your questions or at least point you in the right direction.
+
+# Activity 1: OOP Revision Cards
+
+1. Each student receives either a **question (red/pink)** or an **answer (blue)** card
+2. Students discuss and find their matching question-answer pairs
+3. Once paired, students introduce themselves to their partner
+4. Each pair presents their question and answer to the class
+5. Students introduce their partner to the class
+
+# Development Environment Setup
+
+## Required Tools
+
+- **IDE:** Visual Studio or your preferred IDE
+- **Version Control:** [Git and GitLab](https://is.muni.cz/auth/el/fi/jaro2026/PB178/index.qwarp?prejit=4439141)
+
+## Seminar Materials Repository
+
+**Repository**: [pb178-seminars-2026](https://gitlab.fi.muni.cz/pb178/pb178-seminars-2026)
+
+**Structure**:
+
+- **Demos:** Review before each seminar to familiarize yourself with the code
+- **Assignments:** Work on these together during seminars
+- **Implementations:** Example solutions
+
+> [!TIP]
+> Try solving assignments on your own first
+
+## Submission Repository
+
+Set up your own submission repository for homework assignments according to instructions in interactive sylabus.
+
+# Course Organization
+
+- **Attendance**: Suggested but not mandatory
+  - You may miss important information if absent
+- **Communication**:
+  - **Discord server**: Fastest way to reach me
+  - **Email**: Also available, but slower response time
+- **Other organizational information:** [IS MUNI](https://is.muni.cz/auth/el/fi/jaro2026/PB178/index.qwarp?prejit=4439139)
+
+> [!IMPORTANT]
+> There will be a substitute instructor on **Week 02** (I'll be out of town)
+
+# Activity 2: Building a Console Memory Game (Pexeso)
+
+## Step 1: Create the Project
+
+Create a new console application project in .NET using C#.
+
+## Step 2: Read User Inputs
+
+- Read two numbers from the user
+- If their product is **even**, print `OK`
+
+## Step 3: Create the Card Class
+
+Create a `Card` class that represents a single pexeso card in the game.
+
+## Step 4: Create the Board Class
+
+Create a `Board` class that represents the game board:
+
+- Contains a `Start()` method that launches the game
+- At the beginning, read two numbers from the player
+  - The **product of these numbers must be even** (determines board size)
+- Display the board with cards face-down:
+
+```plain
+[*][*][*][*]
+[*][*][*][*]
+[*][*][*][*]
+```
+
+## Step 5: Initialize Cards
+
+Fill the cards with letters from the alphabet based on the board size (each letter appears twice for matching pairs).
+
+## Step 6: User Input and Card Flipping
+
+- Get user input (which cards to flip)
+- Flip the selected cards
+- Update and display the board state
+
+## Step 7: Complete the Game
+
+Implement full memory game logic for a single player:
+
+- Matching pairs
+- Win condition
+
+## Step 8: Randomization
+
+Modify card generation to **randomize** card placement on the board.
+
+# Summary
+
+✓ Seminar Materials Repository cloned/forked
+
+✓ Submission Repository created
+
+✓ Development environment ready
+
+> [!IMPORTANT]
+> Any questions?
