@@ -118,7 +118,7 @@ public class Repository<T>
 
     public void Add(T item) => _items.Add(item);
 
-    public T GetById(int index) => _items[index];
+    public T GetByIndex(int index) => _items[index];
 
     public IEnumerable<T> GetAll() => _items;
 }
@@ -138,6 +138,11 @@ You can restrict the types that can be used with generics using **constraints**.
 ```csharp
 public T FindMax<T>(List<T> items) where T : IComparable<T>
 {
+    if (items.Count == 0)
+    {
+        throw new ArgumentException("List must not be empty.", nameof(items));
+    }
+
     T max = items[0];
     foreach (var item in items)
     {
@@ -186,14 +191,20 @@ This works because `string` is a subtype of `object`, and `IEnumerable<T>` only 
 ### Custom Covariant Interface
 
 ```csharp
+public class Animal
+{
+    public string Name { get; }
+    public Animal(string name) => Name = name;
+}
+
+public class Dog : Animal
+{
+    public Dog(string name) : base(name) { }
+}
+
 public interface IProducer<out T>
 {
     T Produce();
-}
-
-public class AnimalProducer : IProducer<Animal>
-{
-    public Animal Produce() => new Animal("Generic Animal");
 }
 
 public class DogProducer : IProducer<Dog>
@@ -224,19 +235,19 @@ This works because `Action<T>` only **consumes** (takes in) values of type `T`.
 ### Custom Contravariant Interface
 
 ```csharp
-public interface IComparer<in T>
+public interface ICustomComparer<in T>
 {
     int Compare(T x, T y);
 }
 
-public class AnimalComparer : IComparer<Animal>
+public class AnimalComparer : ICustomComparer<Animal>
 {
     public int Compare(Animal x, Animal y)
         => string.Compare(x.Name, y.Name, StringComparison.Ordinal);
 }
 
-// Animal is a base type of Dog, so IComparer<Animal> can be assigned to IComparer<Dog>
-IComparer<Dog> dogComparer = new AnimalComparer(); // ✅ Contravariance allows this
+// Animal is a base type of Dog, so ICustomComparer<Animal> can be assigned to ICustomComparer<Dog>
+ICustomComparer<Dog> dogComparer = new AnimalComparer(); // ✅ Contravariance allows this
 dogComparer.Compare(new Dog("Buddy"), new Dog("Rex"));
 ```
 
