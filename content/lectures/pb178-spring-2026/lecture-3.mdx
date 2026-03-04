@@ -4,12 +4,299 @@ description: "Practical work with methods using variable numbers of parameters, 
 order: 3
 recommendedStudyFrom: "2026-03-02"
 recommendedStudyTo: "2026-03-08"
-availableFrom: "2026-03-05"
+availableFrom: "2026-03-04"
 tags:
   - generics
   - collections
-  - csharp
+  - params
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. HW 00
+2. Lecture and ROPOT
+3. Coding Session 1: Params
+4. Coding Session 2: Collections
+5. Coding Session 3: Generics and Overloading
+6. Covariance vs Contravariance
+7. Arrays
+
+# HW 00
+
+- Who did homework?
+- Did you have any problems with it?
+- I will take a look at your submissions during the weekend
+- If you want to create a pull request before submitting, make sure to create it as a **draft**
+
+# Lecture and ROPOT
+
+- Any questions before we start the ROPOT?
+
+# Coding Session 1: Params
+
+The `params` keyword allows a method to accept a **variable number of arguments** of the same type.
+
+```csharp
+public static int Sum(params int[] numbers)
+{
+    int result = 0;
+    foreach (var number in numbers)
+    {
+        result += number;
+    }
+    return result;
+}
+
+// Usage
+Sum(1, 2, 3);       // 6
+Sum(10, 20);        // 30
+Sum();              // 0
+```
+
+**Key rules:**
+
+- The `params` parameter must be the **last parameter** in the method signature
+- Only **one** `params` parameter is allowed per method
+- If no arguments are passed, the array will be **empty** (not `null`)
+
+**Assignment:** Open `Week03/Assignments/Params/`
+
+# Coding Session 2: Collections
+
+## What collections do you know?
+
+Quick activity via **Mentimeter** — scan the QR code or enter the code manually.
+
+## Collections Overview
+
+Collections are data structures used to store, manage, and manipulate groups of related objects. .NET provides a rich set of collection types.
+
+| Collection                 | Description               | Use Case                           |
+| -------------------------- | ------------------------- | ---------------------------------- |
+| `List<T>`                  | Dynamic array             | General-purpose ordered collection |
+| `Dictionary<TKey, TValue>` | Key-value pairs           | Fast lookups by key                |
+| `HashSet<T>`               | Unique elements           | Ensuring no duplicates             |
+| `Queue<T>`                 | FIFO (First-In-First-Out) | Processing items in order          |
+| `Stack<T>`                 | LIFO (Last-In-First-Out)  | Undo operations, parsing           |
+| `LinkedList<T>`            | Doubly linked list        | Frequent insertions/removals       |
+
+> [!NOTE]
+> For more details, see [MS Learn: Collections and Data Structures](https://learn.microsoft.com/en-us/dotnet/standard/collections/).
+
+```csharp
+// List<T>
+var names = new List<string> { "Alice", "Bob" };
+names.Add("Charlie");
+
+// Dictionary<TKey, TValue>
+var ages = new Dictionary<string, int>
+{
+    ["Alice"] = 25,
+    ["Bob"] = 30
+};
+
+// HashSet<T>
+var uniqueNumbers = new HashSet<int> { 1, 2, 3, 2, 1 };
+// Contains: 1, 2, 3
+```
+
+**Assignment:** Open `Week03/Assignments/Collections/`
+
+> [!IMPORTANT]
+> Make sure to check your solution with the provided tests.
+
+# Coding Session 3: Generics and Overloading
+
+## Generics
+
+Generics allow you to write **type-safe** code without committing to a specific data type.
+
+```csharp
+public class Repository<T>
+{
+    private readonly List<T> _items = new();
+
+    public void Add(T item) => _items.Add(item);
+
+    public T GetById(int index) => _items[index];
+
+    public IEnumerable<T> GetAll() => _items;
+}
+
+// Usage
+var intRepo = new Repository<int>();
+intRepo.Add(42);
+
+var stringRepo = new Repository<string>();
+stringRepo.Add("Hello");
+```
+
+## Generic Constraints
+
+You can restrict the types that can be used with generics using **constraints**.
+
+```csharp
+public T FindMax<T>(List<T> items) where T : IComparable<T>
+{
+    T max = items[0];
+    foreach (var item in items)
+    {
+        if (item.CompareTo(max) > 0)
+        {
+            max = item;
+        }
+    }
+    return max;
+}
+```
+
+Common constraints: `where T : class`, `where T : struct`, `where T : BaseClass`, `where T : IInterface`.
+
+## Method Overloading
+
+Method overloading allows multiple methods with the **same name** but **different parameter lists**:
+
+```csharp
+public int Add(int a, int b) => a + b;
+public double Add(double a, double b) => a + b;
+public string Add(string a, string b) => a + b;
+```
+
+**Assignment:** Open `Week03/Assignments/GenericsAndOverloading/`
+
+> [!IMPORTANT]
+> Make sure to check your solution with the provided tests.
+
+# Covariance vs Contravariance
+
+Covariance and contravariance describe how type relationships are preserved (or reversed) when working with generic types.
+
+## Covariance (`out`)
+
+Covariance allows you to use a **more derived type** than originally specified. It applies to **return types**.
+
+```csharp
+// IEnumerable<out T> is covariant
+IEnumerable<string> strings = new List<string> { "Hello", "World" };
+IEnumerable<object> objects = strings; // ✅ Covariance allows this
+```
+
+This works because `string` is a subtype of `object`, and `IEnumerable<T>` only **produces** (outputs) values of type `T`.
+
+### Custom Covariant Interface
+
+```csharp
+public interface IProducer<out T>
+{
+    T Produce();
+}
+
+public class AnimalProducer : IProducer<Animal>
+{
+    public Animal Produce() => new Animal("Generic Animal");
+}
+
+public class DogProducer : IProducer<Dog>
+{
+    public Dog Produce() => new Dog("Buddy");
+}
+
+// Dog is a subtype of Animal, so IProducer<Dog> can be assigned to IProducer<Animal>
+IProducer<Animal> producer = new DogProducer(); // ✅ Covariance allows this
+Animal animal = producer.Produce(); // Returns a Dog
+```
+
+**Real-world use case:** Covariance is commonly used when building **read-only repositories or data providers**. For example, a method that returns `IEnumerable<Animal>` can accept a `List<Dog>` — this is essential for writing flexible APIs that work with class hierarchies without casting.
+
+## Contravariance (`in`)
+
+Contravariance allows you to use a **less derived type** than originally specified. It applies to **input types**.
+
+```csharp
+// Action<in T> is contravariant
+Action<object> objectAction = obj => Console.WriteLine(obj);
+Action<string> stringAction = objectAction; // ✅ Contravariance allows this
+stringAction("Hello");
+```
+
+This works because `Action<T>` only **consumes** (takes in) values of type `T`.
+
+### Custom Contravariant Interface
+
+```csharp
+public interface IComparer<in T>
+{
+    int Compare(T x, T y);
+}
+
+public class AnimalComparer : IComparer<Animal>
+{
+    public int Compare(Animal x, Animal y)
+        => string.Compare(x.Name, y.Name, StringComparison.Ordinal);
+}
+
+// Animal is a base type of Dog, so IComparer<Animal> can be assigned to IComparer<Dog>
+IComparer<Dog> dogComparer = new AnimalComparer(); // ✅ Contravariance allows this
+dogComparer.Compare(new Dog("Buddy"), new Dog("Rex"));
+```
+
+**Real-world use case:** Contravariance is commonly used in **comparers, validators, and event handlers**. For example, if you have a comparer that can compare any `Animal` by name, it can also compare `Dog` instances — this avoids writing duplicate comparison logic for every derived type.
+
+## Summary Table
+
+| Concept        | Keyword | Direction         | Example              |
+| -------------- | ------- | ----------------- | -------------------- |
+| Covariance     | `out`   | Output (return)   | `IEnumerable<out T>` |
+| Contravariance | `in`    | Input (parameter) | `Action<in T>`       |
+| Invariance     | —       | Neither           | `List<T>`            |
+
+## Why Does This Matter?
+
+- Enables **flexible and reusable APIs**
+- Prevents **type-safety violations** at compile time
+
+# Arrays
+
+- Arrays in C# are **fixed-size**, **strongly-typed** collections of elements stored in **contiguous memory**.
+- How would you visualize the arrays in the assignment?
+
+```csharp
+// 1D array
+int[] numbers = { 1, 2, 3, 4, 5 };
+
+// 2D array (rectangular)
+int[,] matrix = {
+    { 1, 2, 3 },
+    { 4, 5, 6 }
+};
+
+// Jagged array (array of arrays)
+int[][] jagged = new int[3][];
+jagged[0] = new int[] { 1, 2 };
+jagged[1] = new int[] { 3, 4, 5 };
+jagged[2] = new int[] { 6 };
+```
+
+**Assignment:** Open `Week03/Assignments/Arrays/`
+
+> [!TIP]
+> Try to implement the solution at home if you don't finish during the seminar.
+
+# Summary
+
+✓ Reviewed HW 00
+
+✓ Completed ROPOT
+
+✓ Learned about `params` for variable-length arguments
+
+✓ Explored collections and their use cases
+
+✓ Practiced generics, constraints, and method overloading
+
+✓ Understood covariance and contravariance in .NET
+
+✓ Worked with arrays (1D, 2D, and jagged)
+
+> [!IMPORTANT]
+> Any questions?
