@@ -4,13 +4,553 @@ description: "Working with files and streams, serialization, delegates, extensio
 order: 4
 recommendedStudyFrom: "2026-03-09"
 recommendedStudyTo: "2026-03-15"
-availableFrom: "2026-03-12"
+availableFrom: "2026-03-11"
 tags:
   - files
   - serialization
   - delegates
   - pattern-matching
+  - extension-methods
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. HW 00 Common Issues
+2. Lecture and ROPOT
+3. Coding Session 1: Files and Streams
+4. Coding Session 2: Delegates
+5. Coding Session 3: Extension Methods
+6. Coding Session 4: Pattern Matching
+
+# ROPOT
+
+- Any questions before we start the ROPOT?
+
+# HW 00 Common Issues
+
+Here are some common issues and recommendations based on your HW 00 submissions.
+
+## One File per Class
+
+Each class should live in its own file. Don't put all classes in a single file — it makes the code harder to navigate and maintain.
+
+## Namespaces
+
+Follow the convention of matching the **namespace** to the **folder structure** of the project.
+
+```csharp
+// File: Models/Student.cs
+namespace MyProject.Models;
+
+public class Student { }
+```
+
+## Properties vs Fields
+
+Use **properties** for public-facing data and **fields** for internal state. Follow these naming conventions:
+
+```csharp
+class Person
+{
+    // Private field — camelCase with underscore prefix
+    private readonly string _firstName;
+
+    // Public property — PascalCase
+    public string LastName { get; set; }
+
+    // Private set — readable from outside, writable only from inside the class
+    public string Email { get; private set; }
+
+    // Init-only property — can only be set during initialization
+    public int Age { get; init; }
+
+    // Computed property — no backing field needed
+    public string FullName => $"{_firstName} {LastName}";
+
+    public Person(string firstName, string email)
+    {
+        _firstName = firstName;
+        Email = email;
+    }
+
+    public void UpdateEmail(string newEmail) => Email = newEmail;
+}
+
+// Property initialization — no need to pass every value through the constructor
+var person = new Person("John", "john@example.com")
+{
+    LastName = "Doe",
+    Age = 25
+};
+
+Console.WriteLine(person.FullName); // John Doe
+Console.WriteLine(person.Email);   // john@example.com
+Console.WriteLine(person.Age);     // 25
+
+person.UpdateEmail("john.doe@example.com");
+Console.WriteLine(person.Email);   // john.doe@example.com
+
+// person.Email = "test@test.com"; // ❌ Compile error — setter is private
+```
+
+### Property Accessors
+
+| Accessor      | Description                                                         |
+| ------------- | ------------------------------------------------------------------- |
+| `get`         | Returns the property value                                          |
+| `set`         | Allows setting the value at any time                                |
+| `private set` | Allows setting only from within the class itself                    |
+| `init`        | Allows setting the value only during construction or initialization |
+
+## General Recommendations
+
+- Use `{}` for single-line statements in `if`, `for`, `while`, etc. — this is a recommendation, not a requirement, but it prevents common bugs
+- Clean up **unused `using` directives** — keep your imports tidy
+- Prefer **interface types** over concrete types for variables and parameters:
+
+```csharp
+// ✅ Prefer this
+IList<string> names1 = new List<string>();
+
+// ❌ Over this
+List<string> names2 = new List<string>();
+```
+
+# Coding Session 1: Files and Streams
+
+## What is a Stream?
+
+A **stream** is an abstraction that represents a sequence of bytes. Streams are used for reading from and writing to various data sources — files, network connections, memory buffers, etc. The base class `Stream` provides a unified interface regardless of the underlying source.
+
+```csharp
+// Common stream types in .NET:
+// FileStream     — reads/writes bytes to a file
+// MemoryStream   — reads/writes bytes in memory
+// NetworkStream  — reads/writes bytes over a network connection
+// StreamReader   — reads characters from a stream (wraps a Stream)
+// StreamWriter   — writes characters to a stream (wraps a Stream)
+```
+
+Streams implement `IDisposable` — they hold unmanaged resources (file handles, network sockets) that must be released when you're done.
+
+## Disposing Streams
+
+The `Dispose()` method releases unmanaged resources held by a stream. You can call it manually using `try`/`finally`:
+
+```csharp
+var filePath = Path.GetTempFileName();
+StreamWriter? writer = null;
+try
+{
+    writer = new StreamWriter(filePath);
+    writer.WriteLine("Hello from try/finally!");
+}
+finally
+{
+    writer?.Dispose();
+}
+
+Console.WriteLine(File.ReadAllText(filePath));
+// Hello from try/finally!
+```
+
+The `using` statement is syntactic sugar that does the same thing — it calls `Dispose()` automatically at the end of the block:
+
+```csharp
+var filePath2 = Path.GetTempFileName();
+using (var writer2 = new StreamWriter(filePath2))
+{
+    writer2.WriteLine("Hello from using!");
+}
+
+Console.WriteLine(File.ReadAllText(filePath2));
+// Hello from using!
+```
+
+> [!TIP]
+> Always prefer `using` over manual `try`/`finally` — it's shorter, cleaner, and harder to get wrong.
+
+## Reading and Writing Files
+
+C# provides `StreamReader` and `StreamWriter` for working with text files. Always use `using` statements to ensure streams are properly closed and disposed.
+
+```csharp
+var path = Path.GetTempFileName();
+
+// Writing to a file
+using (var writer = new StreamWriter(path))
+{
+    writer.WriteLine("Hello, World!");
+    writer.WriteLine("This is a second line.");
+}
+
+// Reading from a file
+using (var reader = new StreamReader(path))
+{
+    string? line;
+    while ((line = reader.ReadLine()) != null)
+    {
+        Console.WriteLine(line);
+    }
+}
+// Hello, World!
+// This is a second line.
+```
+
+You can also use the simpler `File` helper methods for common operations:
+
+```csharp
+var dataPath = Path.GetTempFileName();
+
+// Write all text at once
+File.WriteAllText(dataPath, "Hello!\nWorld!");
+
+// Read all text at once
+string content = File.ReadAllText(dataPath);
+Console.WriteLine(content);
+// Hello!
+// World!
+
+// Read all lines into an array
+string[] lines = File.ReadAllLines(dataPath);
+Console.WriteLine(lines.Length); // 2
+```
+
+> [!TIP]
+> Use `StreamReader`/`StreamWriter` for large files or when you need fine-grained control. Use `File.*` methods for quick, simple operations.
+
+## Serialization and Deserialization
+
+**Serialization** is the process of converting an object into a format that can be stored or transmitted (e.g., JSON, XML). **Deserialization** is the reverse — converting the stored format back into an object.
+
+### JSON Serialization with `System.Text.Json`
+
+```csharp
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+class Product
+{
+    [JsonPropertyName("product_name")]
+    public string Name { get; set; } = string.Empty;
+
+    [JsonPropertyName("price")]
+    public decimal Price { get; set; }
+
+    [JsonPropertyName("qty")]
+    public int Quantity { get; set; }
+}
+
+// Serialize an object to JSON
+var product = new Product { Name = "Laptop", Price = 999.99m, Quantity = 5 };
+string json = JsonSerializer.Serialize(product);
+Console.WriteLine(json);
+// {"product_name":"Laptop","price":999.99,"qty":5}
+
+// Deserialize JSON back to an object
+var deserialized = JsonSerializer.Deserialize<Product>(json);
+Console.WriteLine(deserialized?.Name); // Laptop
+```
+
+The `[JsonPropertyName]` attribute lets you control the exact JSON key for each property — useful when the API you're working with uses a different naming convention (e.g., `snake_case`).
+
+You can customize serialization using `JsonSerializerOptions`:
+
+```csharp
+var options = new JsonSerializerOptions
+{
+    WriteIndented = true,
+    PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+};
+
+string prettyJson = JsonSerializer.Serialize(product, options);
+Console.WriteLine(prettyJson);
+// {
+//   "name": "Laptop",
+//   "price": 999.99,
+//   "quantity": 5
+// }
+```
+
+> [!NOTE]
+> For more details, see [MS Learn: System.Text.Json](https://learn.microsoft.com/en-us/dotnet/standard/serialization/system-text-json/overview).
+
+**Assignment:** Open `Week04/Assignments/Streams/`
+
+> [!IMPORTANT]
+> Make sure to check your solution with the provided tests.
+
+# Coding Session 2: Delegates
+
+A **delegate** is a type that represents a reference to a method. Think of it as a type-safe function pointer.
+
+## Declaring and Using Delegates
+
+```csharp
+// Declare a delegate type
+delegate int MathOperation(int a, int b);
+
+// Methods matching the delegate signature
+int Add(int a, int b) => a + b;
+int Multiply(int a, int b) => a * b;
+
+// Using the delegate
+MathOperation operation = Add;
+Console.WriteLine(operation(3, 4)); // 7
+
+operation = Multiply;
+Console.WriteLine(operation(3, 4)); // 12
+```
+
+## Built-in Delegates
+
+Instead of declaring custom delegate types, you can use the built-in generic delegates:
+
+| Delegate           | Description                       | Example                                                |
+| ------------------ | --------------------------------- | ------------------------------------------------------ |
+| `Action<T>`        | Takes parameters, returns `void`  | `Action<string>` — takes a string, returns nothing     |
+| `Func<T, TResult>` | Takes parameters, returns a value | `Func<int, int, int>` — takes two ints, returns an int |
+| `Predicate<T>`     | Takes a parameter, returns `bool` | `Predicate<int>` — takes an int, returns true/false    |
+
+```csharp
+// Action — performs an action, returns nothing
+Action<string> greet = name => Console.WriteLine($"Hello, {name}!");
+greet("Alice"); // Hello, Alice!
+
+// Func — takes input, returns a result
+Func<int, int, int> add = (a, b) => a + b;
+Console.WriteLine(add(3, 4)); // 7
+
+// Predicate — returns true or false
+Predicate<int> isEven = n => n % 2 == 0;
+Console.WriteLine(isEven(4)); // True
+Console.WriteLine(isEven(7)); // False
+```
+
+## Lambda Expressions
+
+Lambdas provide a concise way to write inline methods that can be assigned to delegates:
+
+```csharp
+// Expression lambda (single expression)
+Func<int, int> square = x => x * x;
+
+// Statement lambda (multiple statements)
+Func<int, int> factorial = n =>
+{
+    int result = 1;
+    for (int i = 2; i <= n; i++)
+    {
+        result *= i;
+    }
+    return result;
+};
+
+Console.WriteLine(square(5));      // 25
+Console.WriteLine(factorial(5));   // 120
+```
+
+> [!TIP]
+> Prefer `Func`, `Action`, and `Predicate` over custom delegate types unless you need a descriptive name for readability.
+
+**Assignment:** Open `Week04/Assignments/Delegates/`
+
+> [!IMPORTANT]
+> Make sure to check your solution with the provided tests.
+
+# Coding Session 3: Extension Methods
+
+Extension methods allow you to **add methods to existing types** without modifying them. They are defined as `static` methods in a `static` class, with the `this` keyword before the first parameter.
+
+```csharp
+static class StringExtensions
+{
+    public static string Reverse(this string input)
+    {
+        char[] chars = input.ToCharArray();
+        Array.Reverse(chars);
+        return new string(chars);
+    }
+
+    public static bool IsPalindrome(this string input)
+    {
+        string reversed = input.Reverse();
+        return input.Equals(reversed, StringComparison.OrdinalIgnoreCase);
+    }
+}
+
+// Usage — called as if they were instance methods
+string word = "racecar";
+Console.WriteLine(word.Reverse());       // racecar
+Console.WriteLine(word.IsPalindrome());  // True
+
+Console.WriteLine("hello".Reverse());      // olleh
+Console.WriteLine("hello".IsPalindrome()); // False
+```
+
+> [!NOTE]
+> Extension methods are widely used in .NET — for example, all LINQ methods (`Where`, `Select`, `OrderBy`, etc.) are extension methods on `IEnumerable<T>`.
+
+## Extensions on Interfaces and Other Types
+
+You can extend interfaces, enums, and other types:
+
+```csharp
+static class EnumerableExtensions
+{
+    public static void PrintAll<T>(this IEnumerable<T> items)
+    {
+        foreach (var item in items)
+        {
+            Console.WriteLine(item);
+        }
+    }
+}
+
+var numbers = new List<int> { 1, 2, 3 };
+numbers.PrintAll();
+// 1
+// 2
+// 3
+```
+
+## Static Extension Members (C# 14)
+
+C# 14 introduces **extension members** using a new `extension` block syntax. This allows you to define static methods, properties, and more as extensions — not just instance methods:
+
+```csharp
+static class IntExtensions
+{
+    extension(int value)
+    {
+        // Instance-style extension property
+        public bool IsEven => value % 2 == 0;
+    }
+
+    extension(int)
+    {
+        // Static-style extension method
+        public static int Create(string text) => int.Parse(text);
+    }
+}
+
+// Usage
+Console.WriteLine(42.IsEven);          // True
+Console.WriteLine(int.Create("123"));  // 123
+```
+
+> [!CAUTION]
+> The `extension` block syntax requires C# 14 / .NET 10 (preview). The traditional `this` syntax remains fully supported.
+
+**Assignment:** Open `Week04/Assignments/ExtensionMethods/`
+
+> [!IMPORTANT]
+> Make sure to check your solution with the provided tests.
+
+# Coding Session 4: Pattern Matching
+
+Pattern matching allows you to test a value against a pattern and extract information from it. C# supports several pattern types.
+
+## Type Patterns with `is`
+
+```csharp
+object value = "Hello, World!";
+
+if (value is string text)
+{
+    Console.WriteLine($"It's a string with length {text.Length}");
+}
+// It's a string with length 13
+
+if (value is int number)
+{
+    Console.WriteLine($"It's an integer: {number}");
+}
+// (no output — value is not an int)
+```
+
+## Switch Expressions
+
+Switch expressions provide a concise alternative to `switch` statements and integrate well with pattern matching:
+
+```csharp
+string Classify(object obj) => obj switch
+{
+    int n when n > 0 => "Positive integer",
+    int n when n < 0 => "Negative integer",
+    int => "Zero",
+    string s => $"String of length {s.Length}",
+    null => "Null value",
+    _ => "Unknown type"
+};
+
+Console.WriteLine(Classify(42));       // Positive integer
+Console.WriteLine(Classify(-3));       // Negative integer
+Console.WriteLine(Classify("hello"));  // String of length 5
+Console.WriteLine(Classify(null));     // Null value
+```
+
+## Property and Relational Patterns
+
+```csharp
+record Point(int X, int Y);
+
+string DescribePoint(Point point) => point switch
+{
+    { X: 0, Y: 0 } => "Origin",
+    { X: 0 } => "On the Y-axis",
+    { Y: 0 } => "On the X-axis",
+    { X: > 0, Y: > 0 } => "First quadrant",
+    _ => "Somewhere else"
+};
+
+Console.WriteLine(DescribePoint(new Point(0, 0)));   // Origin
+Console.WriteLine(DescribePoint(new Point(0, 5)));   // On the Y-axis
+Console.WriteLine(DescribePoint(new Point(3, 7)));   // First quadrant
+Console.WriteLine(DescribePoint(new Point(-1, -2))); // Somewhere else
+```
+
+## Logical Patterns
+
+You can combine patterns with `and`, `or`, and `not`:
+
+```csharp
+string ClassifyTemperature(int temp) => temp switch
+{
+    < 0 => "Freezing",
+    >= 0 and < 15 => "Cold",
+    >= 15 and < 25 => "Comfortable",
+    >= 25 and < 35 => "Warm",
+    >= 35 => "Hot"
+};
+
+Console.WriteLine(ClassifyTemperature(-5));  // Freezing
+Console.WriteLine(ClassifyTemperature(10));  // Cold
+Console.WriteLine(ClassifyTemperature(22));  // Comfortable
+Console.WriteLine(ClassifyTemperature(40));  // Hot
+```
+
+> [!NOTE]
+> For a complete list of patterns, see [MS Learn: Pattern Matching](https://learn.microsoft.com/en-us/dotnet/csharp/fundamentals/functional/pattern-matching).
+
+**Assignment:** Open `Week04/Assignments/PatternMatching/`
+
+> [!TIP]
+> Try to implement the solution at home if you don't finish during the seminar.
+
+# Summary
+
+✓ Reviewed common HW 00 issues (namespaces, properties, naming conventions)
+
+✓ Learned to read and write files using `StreamReader`, `StreamWriter`, and `File.*` methods
+
+✓ Practiced JSON serialization with `System.Text.Json`
+
+✓ Understood delegates, built-in delegates (`Action`, `Func`, `Predicate`), and lambda expressions
+
+✓ Created extension methods and explored the new C# 14 extension syntax
+
+✓ Applied pattern matching with `is`, `switch` expressions, and logical patterns
+
+> [!IMPORTANT]
+> Any questions?
