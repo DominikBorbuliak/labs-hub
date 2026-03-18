@@ -1,15 +1,473 @@
 ---
 title: ".NET MAUI UI Basics"
-description: "Introduction to .NET MAUI, user interface fundamentals, and handling button click events."
+description: "Introduction to .NET MAUI, user interface fundamentals, and handling UI events."
 order: 5
 recommendedStudyFrom: "2026-03-16"
 recommendedStudyTo: "2026-03-22"
-availableFrom: "2026-03-19"
+availableFrom: "2026-03-18"
 tags:
   - maui
   - ui
   - events
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. ROPOT
+2. HW 01 Common Issues
+3. MAUI Setup
+4. .NET MAUI UI Basics
+5. Coding Session: MAUI Layout
+6. MAUI Events
+7. Coding Session: MAUI Events
+
+# ROPOT
+
+- Any questions before we start the ROPOT?
+
+# HW 01 Common Issues
+
+## Console Output in Domain Logic
+
+Many submissions had `Console.WriteLine` calls scattered throughout domain classes like `Battle`, `Character`, or `Game`:
+
+```csharp
+// ❌ Console output mixed into domain logic
+public class Battle
+{
+    public void ExecuteRound(Adventurer adventurer, Monster monster)
+    {
+        int damage = adventurer.Attack;
+        Console.WriteLine($"{adventurer.Name} attacks {monster.Name} for {damage} damage!");
+        monster.Health -= damage;
+        if (monster.Health <= 0)
+            Console.WriteLine($"{monster.Name} is defeated!");
+    }
+}
+```
+
+Why is this a problem?
+
+- **Separation of concerns** — `Battle` is responsible for game rules. Deciding _how to display_ results is a different responsibility. Mixing them makes the code harder to understand and maintain.
+- **Reusability** — if you later want to show battle results in a GUI (like MAUI 😉) instead of the console, you'd have to rewrite `Battle` itself.
+- **Testability** — in a unit test you can assert on return values and object state, but you cannot verify what was printed to `Console`.
+
+**The fix:** move all presentation into a separate static `BattleUI` class. `Battle` handles the game logic, `BattleUI` handles printing:
+
+```csharp
+// Presentation — all Console output lives here
+public static class BattleUI
+{
+    public static void ShowAttack(string attackerName, string targetName, int damage, bool isDefeated)
+    {
+        Console.WriteLine($"{attackerName} attacks {targetName} for {damage} damage!");
+        if (isDefeated)
+            Console.WriteLine($"{targetName} is defeated!");
+    }
+}
+
+// Domain logic calls BattleUI for output, but contains no Console calls itself
+public class Battle
+{
+    public void ExecuteRound(Adventurer adventurer, Monster monster)
+    {
+        int damage = adventurer.Attack;
+        monster.TakeDamage(damage);
+        BattleUI.ShowAttack(adventurer.Name, monster.Name, damage, monster.IsDefeated);
+    }
+}
+```
+
+For a more advanced approach, you can define an `IBattleUI` interface and inject it into `Battle`. This lets you swap the implementation — e.g., use a console UI now and a MAUI UI later — without changing `Battle` at all:
+
+```csharp
+public interface IBattleUI
+{
+    void ShowAttack(string attackerName, string targetName, int damage, bool isDefeated);
+}
+
+public class ConsoleBattleUI : IBattleUI
+{
+    public void ShowAttack(string attackerName, string targetName, int damage, bool isDefeated)
+    {
+        Console.WriteLine($"{attackerName} attacks {targetName} for {damage} damage!");
+        if (isDefeated)
+            Console.WriteLine($"{targetName} is defeated!");
+    }
+}
+
+public class Battle
+{
+    private readonly IBattleUI _ui;
+
+    public Battle(IBattleUI ui) => _ui = ui;
+
+    public void ExecuteRound(Adventurer adventurer, Monster monster)
+    {
+        int damage = adventurer.Attack;
+        monster.TakeDamage(damage);
+        _ui.ShowAttack(adventurer.Name, monster.Name, damage, monster.IsDefeated);
+    }
+}
+
+// Usage in Program.cs
+var battle = new Battle(new ConsoleBattleUI());
+battle.ExecuteRound(adventurer, monster);
+```
+
+> [!TIP]
+> If you had `Console.WriteLine` calls to display character stats, a simple `ToString` override is often all you need:
+>
+> ```csharp
+> public class Character
+> {
+>     public string Name { get; }
+>     public int Health { get; }
+>     public int Attack { get; }
+>
+>     public override string ToString() => $"{Name} (HP: {Health}, ATK: {Attack})";
+> }
+>
+> // Now Console.WriteLine(character) just works
+> ```
+
+## Magic Numbers
+
+XP thresholds, team sizes, stat gain ranges, and damage multipliers were often hard-coded as raw numbers. Use named constants to improve readability and maintainability.
+
+```csharp
+// ❌ What does 100 mean? What about 1 and 4?
+public void GainExperience(int xp)
+{
+    Experience += xp;
+    while (Experience >= 100)
+    {
+        Level++;
+        Experience -= 100;
+        Attack += Random.Shared.Next(1, 4);
+    }
+}
+
+// ✅ Named constants make intent clear
+public static class GameConstants
+{
+    public const int XpPerLevel = 100;
+    public const int AttackGainMin = 1;
+    public const int AttackGainMax = 3;
+}
+
+public void GainExperience(int xp)
+{
+    Experience += xp;
+    while (Experience >= GameConstants.XpPerLevel)
+    {
+        Level++;
+        Experience -= GameConstants.XpPerLevel;
+        // Next() upper bound is exclusive, so +1 to include AttackGainMax
+        Attack += Random.Shared.Next(GameConstants.AttackGainMin, GameConstants.AttackGainMax + 1);
+    }
+}
+```
+
+## Public Setters Breaking Encapsulation
+
+Properties like `Health` and `Attack` often had public setters, allowing external code to set invalid state (e.g., `Health = -999`). Use private setters and dedicated methods with validation.
+
+```csharp
+// ❌ Anyone can set Health to anything
+public class Character
+{
+    public int Health { get; set; }
+}
+
+// ✅ Controlled mutation through methods
+public class Character
+{
+    public int Health { get; private set; }
+    public int MaxHealth { get; private set; }
+
+    public void TakeDamage(int damage)
+    {
+        Health = Math.Max(0, Health - damage);
+    }
+
+    public void Heal(int amount)
+    {
+        Health = Math.Min(MaxHealth, Health + amount);
+    }
+}
+```
+
+## Naming Conventions
+
+Enums using `snake_case` or lowercase values, missing underscore prefixes on private fields, and plural enum names were common. Follow the standard C# naming conventions:
+
+```csharp
+// ❌ Non-standard naming
+public enum Attack_Types { light, dark, fire }
+private int currentWave;
+
+// ✅ Standard C# naming
+public enum AttackType
+{
+    Light,
+    Dark,
+    Fire
+}
+private int _currentWave;
+```
+
+## Overusing Static Classes
+
+Some submissions made nearly everything `static` — static classes, static methods, static fields. While static is fine for stateless utilities (like `BattleUI` above or `GameConstants`), using it for classes that hold **state** causes problems:
+
+```csharp
+// ❌ Static state — shared across the entire application
+public static class Game
+{
+    public static List<Character> Team { get; set; } = [];
+    public static int CurrentWave { get; set; } = 1;
+
+    public static void StartNextWave() { /* ... */ }
+}
+
+// Anywhere in the code can modify Game.Team or Game.CurrentWave — no control
+Game.Team.Clear();  // oops
+Game.CurrentWave = -5;  // oops
+```
+
+Static state is **global state** — any code anywhere can read and modify it, making it hard to reason about, hard to test (tests share state between runs), and impossible to have multiple instances (e.g., two games running in parallel).
+
+```csharp
+// ✅ Use instance classes for anything that holds state
+public class Game
+{
+    public List<Character> Team { get; } = [];
+    public int CurrentWave { get; private set; } = 1;
+
+    public void StartNextWave() { /* ... */ }
+}
+
+// Each Game instance has its own independent state
+var game1 = new Game();
+var game2 = new Game();
+```
+
+**Rule of thumb:** use `static` for stateless helpers and constants. If a class has fields or properties that change, make it an instance class.
+
+# MAUI Setup
+
+- Who has .NET MAUI installed and ready to go?
+
+# .NET MAUI UI Basics
+
+## What is .NET MAUI?
+
+**.NET MAUI** (Multi-platform App UI) is a framework for building cross-platform applications with a single codebase. It targets **Android**, **iOS**, **macOS**, and **Windows** from one shared project.
+
+You've already heard about MAUI in the lecture — here we'll focus on the **practical side**: building UIs with XAML and handling user interactions.
+
+## XAML Basics
+
+**XAML** (Extensible Application Markup Language) is a declarative markup language used to define the UI. Each XAML element corresponds to a .NET class, and attributes map to properties.
+
+Every XAML page has a corresponding **code-behind** file (`.xaml.cs`) where you write the C# logic. Here's the basic structure of a MAUI page:
+
+```xml
+<?xml version="1.0" encoding="utf-8" ?>
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             x:Class="MyApp.MainPage">
+
+    <VerticalStackLayout Padding="24" Spacing="16">
+        <Label Text="Hello, MAUI!"
+               FontSize="24"
+               FontAttributes="Bold"
+               TextColor="DarkViolet"
+               HorizontalTextAlignment="Center" />
+    </VerticalStackLayout>
+
+</ContentPage>
+```
+
+`ContentPage` is the root element — it represents a single screen and can only have **one direct child** (that's why we wrap everything in a layout). The `xmlns` attributes declare the XAML namespaces (you don't need to memorize them — they're in every template). `x:Class` links the XAML to its code-behind class.
+
+## Common UI Controls
+
+| Control      | Description                 | Example Use                 |
+| ------------ | --------------------------- | --------------------------- |
+| `Label`      | Displays read-only text     | Headings, descriptions      |
+| `Button`     | A clickable button          | Actions, form submissions   |
+| `Image`      | Displays an image           | Product photos, icons       |
+| `Entry`      | Single-line text input      | Username, search            |
+| `Editor`     | Multi-line text input       | Comments, notes             |
+| `Picker`     | Dropdown selection          | Category selection          |
+| `Switch`     | Toggle on/off               | Settings, preferences       |
+| `Border`     | Wraps content with a border | Cards, highlighted sections |
+| `ScrollView` | Makes content scrollable    | Long pages                  |
+
+> [!NOTE]
+> For a full list of controls, see [MS Learn: Controls](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/?view=net-maui-10.0).
+
+## Layout Containers
+
+Layout containers determine **how child elements are arranged** on the screen.
+
+### VerticalStackLayout / HorizontalStackLayout
+
+Arranges children in a **vertical** or **horizontal** line:
+
+```xml
+<VerticalStackLayout Spacing="16" Padding="24">
+    <Label Text="Title" FontSize="24" FontAttributes="Bold" />
+    <Label Text="Subtitle" FontSize="16" />
+    <Button Text="Click Me" />
+</VerticalStackLayout>
+```
+
+### Grid
+
+Arranges children in a **row/column grid**. Define rows and columns, then place elements using `Grid.Row` and `Grid.Column`:
+
+```xml
+<Grid ColumnDefinitions="*,*" RowDefinitions="Auto,Auto" ColumnSpacing="16" RowSpacing="16">
+    <Image Grid.Row="0" Grid.Column="0" Source="photo1.jpg" />
+    <Image Grid.Row="0" Grid.Column="1" Source="photo2.jpg" />
+    <Label Grid.Row="1" Grid.Column="0" Text="Photo 1" />
+    <Label Grid.Row="1" Grid.Column="1" Text="Photo 2" />
+</Grid>
+```
+
+Column and row sizes can be:
+
+- `*` — proportional (fills remaining space)
+- `Auto` — fits content
+- Fixed value (e.g., `200`) — exact pixel size
+
+> [!NOTE]
+> `Grid.Row="0"` and `Grid.Column="0"` are the defaults — you can omit them for elements in the first row/column.
+
+> [!NOTE]
+> For more details, see [MS Learn: Grid](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/layouts/grid?view=net-maui-10.0) and [VerticalStackLayout](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/layouts/verticalstacklayout?view=net-maui-10.0).
+
+## Common Layout Properties
+
+| Property            | Description                                                |
+| ------------------- | ---------------------------------------------------------- |
+| `Padding`           | Space **inside** the element (between border and content)  |
+| `Margin`            | Space **outside** the element (between element and parent) |
+| `Spacing`           | Space between children (on stack layouts)                  |
+| `HorizontalOptions` | Horizontal alignment (`Start`, `Center`, `End`, `Fill`)    |
+| `VerticalOptions`   | Vertical alignment (`Start`, `Center`, `End`, `Fill`)      |
+
+**Assignment:** Open `Week05/Assignments/MauiLayout/Layout01` and if finished early, `Week05/Assignments/MauiLayout/Layout02`
+
+> [!TIP]
+> Your layout doesn't need to be pixel-perfect — focus on matching the overall structure. All the work goes into `MainPage.xaml`.
+
+# MAUI Events
+
+Events allow your application to **respond to user interactions** — button clicks, toggle switches, picker selections, and more. In MAUI, you connect events to **event handlers** in the code-behind file.
+
+## Subscribing to Events in XAML
+
+You bind an event to a handler method using the event name as an attribute:
+
+```xml
+<Button Text="Click Me" Clicked="OnButtonClicked" />
+```
+
+The corresponding handler in the code-behind (`.xaml.cs`):
+
+```csharp
+private void OnButtonClicked(object? sender, EventArgs e)
+{
+    // Handle the button click
+}
+```
+
+The `sender` parameter is the control that fired the event. You can cast it to access control-specific properties:
+
+```csharp
+private void OnButtonClicked(object? sender, EventArgs e)
+{
+    if (sender is Button button)
+        button.Text = "Clicked!";
+}
+```
+
+## Naming Controls with `x:Name`
+
+To reference a control from the code-behind, give it a name using the `x:Name` attribute:
+
+```xml
+<Label x:Name="StatusLabel" Text="Ready" />
+<Button Text="Update" Clicked="OnUpdateClicked" />
+```
+
+```csharp
+private void OnUpdateClicked(object? sender, EventArgs e)
+{
+    StatusLabel.Text = "Updated!";
+}
+```
+
+## Common Events
+
+| Control  | Event                  | EventArgs              | Description                  |
+| -------- | ---------------------- | ---------------------- | ---------------------------- |
+| `Button` | `Clicked`              | `EventArgs`            | Fires when button is tapped  |
+| `Switch` | `Toggled`              | `ToggledEventArgs`     | Fires when toggled on/off    |
+| `Picker` | `SelectedIndexChanged` | `EventArgs`            | Fires when selection changes |
+| `Entry`  | `TextChanged`          | `TextChangedEventArgs` | Fires on every keystroke     |
+
+## Putting It Together
+
+Here's a quick example combining a `Switch` and a `Button` to update a label:
+
+```xml
+<VerticalStackLayout Spacing="16" Padding="24">
+    <HorizontalStackLayout Spacing="12">
+        <Label Text="Dark Mode" VerticalOptions="Center" />
+        <Switch Toggled="OnDarkModeToggled" />
+    </HorizontalStackLayout>
+    <Button Text="Apply" Clicked="OnApplyClicked" />
+    <Label x:Name="ThemeLabel" Text="Theme: Light" FontSize="18" />
+</VerticalStackLayout>
+```
+
+```csharp
+private bool _isDarkMode;
+
+private void OnDarkModeToggled(object? sender, ToggledEventArgs e)
+{
+    _isDarkMode = e.Value;
+}
+
+private void OnApplyClicked(object? sender, EventArgs e)
+{
+    ThemeLabel.Text = _isDarkMode ? "Theme: Dark" : "Theme: Light";
+}
+```
+
+**Assignment:** Open `Week05/Assignments/MauiEvents/`
+
+> [!TIP]
+> Try to implement the solution at home if you don't finish during the seminar.
+
+# Summary
+
+✓ Completed ROPOT
+
+✓ Reviewed common HW 01 issues (console in domain logic, magic numbers, encapsulation, naming, static abuse)
+
+✓ Verified .NET MAUI development environment is ready
+
+✓ Learned XAML basics and common UI controls (`Label`, `Button`, `Image`, `Picker`, `Switch`)
+
+✓ Practiced building layouts with `VerticalStackLayout`, `HorizontalStackLayout`, and `Grid`
+
+✓ Handled user interactions with events (`Clicked`, `Toggled`, `SelectedIndexChanged`)
+
+> [!IMPORTANT]
+> Any questions?
