@@ -4,12 +4,239 @@ description: "Practical exercises focused on layouts, the MVVM pattern, and data
 order: 6
 recommendedStudyFrom: "2026-03-23"
 recommendedStudyTo: "2026-03-29"
-availableFrom: "2026-03-26"
+availableFrom: "2026-03-25"
 tags:
   - mvvm
   - layouts
   - data-binding
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. MVVM Architecture
+2. Data Binding
+3. Coding Session: MVVM and Binding
+4. Feedback
+
+# MVVM Architecture
+
+## What is MVVM?
+
+**MVVM** (Model-View-ViewModel) is an architectural pattern that separates an application into three layers. It was designed specifically for UI frameworks with data binding support — making it a natural fit for .NET MAUI.
+
+| Layer         | Responsibility                                     | Example             |
+| ------------- | -------------------------------------------------- | ------------------- |
+| **Model**     | Business logic and data                            | `Product`, `Order`  |
+| **View**      | UI layout and presentation (XAML)                  | `MainPage.xaml`     |
+| **ViewModel** | Connects Model to View — exposes data and commands | `MainPageViewModel` |
+
+The key idea: **the View knows about the ViewModel, but the ViewModel knows nothing about the View**. They communicate through data binding, not direct references.
+
+```text
+┌─────────┐    data binding    ┌──────────────┐    method calls   ┌─────────┐
+│  View   │  ◄──────────────►  │  ViewModel   │  ──────────────►  │  Model  │
+│  (XAML) │                    │  (C#)        │                   │  (C#)   │
+└─────────┘                    └──────────────┘                   └─────────┘
+```
+
+## Why MVVM?
+
+Compared to the event-based approach from last week (where code-behind handled everything), MVVM provides:
+
+- **Separation of concerns** — UI logic lives in the ViewModel, not in the code-behind
+- **Testability** — ViewModels can be unit tested without a running UI
+- **Reusability** — the same ViewModel can be used with different Views
+- **Maintainability** — changes to the UI don't affect business logic and vice versa
+
+> [!IMPORTANT]
+> You will be required to use the MVVM pattern in **HW 02**.
+
+## Folder Structure
+
+You don't need separate projects for each layer — organizing by folders within the same project is sufficient for this course:
+
+```text
+MyApp/
+├── Models/
+│   ├── Product.cs
+│   └── Order.cs
+├── Services/
+│   ├── IProductService.cs
+│   └── ProductService.cs
+├── ViewModels/
+│   ├── MainPageViewModel.cs
+│   └── ProductDetailViewModel.cs
+├── Views/
+│   ├── MainPage.xaml
+│   ├── MainPage.xaml.cs
+│   ├── ProductDetailPage.xaml
+│   └── ProductDetailPage.xaml.cs
+├── App.xaml
+├── App.xaml.cs
+└── MauiProgram.cs
+```
+
+For larger applications, you can use separate projects to enforce stricter boundaries:
+
+```text
+MySolution/
+├── MyApp/                    # MAUI project (Views)
+│   ├── Views/
+│   ├── App.xaml
+│   └── MauiProgram.cs
+├── MyApp.ViewModels/         # Class library (ViewModels)
+│   ├── MainPageViewModel.cs
+│   └── ProductDetailViewModel.cs
+├── MyApp.Services/           # Class library (Services)
+│   ├── IProductService.cs
+│   └── ProductService.cs
+└── MyApp.Models/             # Class library (Models)
+    ├── Product.cs
+    └── Order.cs
+```
+
+> [!TIP]
+> For this course, the single-project folder structure is sufficient.
+
+> [!NOTE]
+> Services can also live inside the `Models/` folder using subfolders (e.g., `Models/Services/`) if you prefer a simpler structure with fewer top-level folders.
+
+# Data Binding
+
+Data binding connects View properties to ViewModel properties, keeping them in sync **automatically**. When the ViewModel property changes, the View updates — and vice versa for user input.
+
+## CommunityToolkit.Mvvm
+
+The **CommunityToolkit.Mvvm** NuGet package handles all the `INotifyPropertyChanged` boilerplate using source generators. Install it via NuGet:
+
+```text
+dotnet add package CommunityToolkit.Mvvm
+```
+
+| Attribute / Type          | What it does                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| `ObservableObject`        | Base class that implements `INotifyPropertyChanged`                                  |
+| `[ObservableProperty]`    | On a partial property — generates the implementation with change notification        |
+| `[RelayCommand]`          | On a method — generates an `ICommand` property (method name + `Command`)             |
+| `ObservableCollection<T>` | Collection that notifies the View when items are added or removed (unlike `List<T>`) |
+
+> [!IMPORTANT]
+> The class and its observable properties must be `partial` — the source generator provides the implementation at compile time.
+
+> [!NOTE]
+> The partial property syntax requires .NET 10 / C# 14. Older versions of the toolkit used `[ObservableProperty]` on private fields (e.g., `private string _userName`) instead.
+
+> [!NOTE]
+> For more details on data binding, see [MS Learn: Data Binding](https://learn.microsoft.com/en-us/dotnet/maui/fundamentals/data-binding/?view=net-maui-10.0).
+
+## Complete Example
+
+Here's a todo list that combines all the key concepts — `[ObservableProperty]`, `[RelayCommand]`, and `ObservableCollection<T>`:
+
+```csharp
+using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+public partial class TodoViewModel : ObservableObject
+{
+    // ObservableCollection notifies the View when items are added or removed
+    public ObservableCollection<string> Tasks { get; } = [];
+
+    // [ObservableProperty] generates the property implementation with change notification
+    // [NotifyCanExecuteChangedFor] re-evaluates whether the command can execute when this property changes
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(AddTaskCommand))]
+    public partial string NewTask { get; set; } = string.Empty;
+
+    // [RelayCommand] generates an AddTaskCommand property bound to this method
+    // CanExecute controls whether the button is enabled
+    [RelayCommand(CanExecute = nameof(CanAddTask))]
+    private void AddTask()
+    {
+        Tasks.Add(NewTask);
+        NewTask = string.Empty;
+    }
+
+    private bool CanAddTask() => !string.IsNullOrWhiteSpace(NewTask);
+
+    // A method parameter generates a RelayCommand<T> — receives a value from CommandParameter
+    [RelayCommand]
+    private void RemoveTask(string task)
+    {
+        Tasks.Remove(task);
+    }
+}
+```
+
+```xml
+<ContentPage xmlns="http://schemas.microsoft.com/dotnet/2021/maui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2009/xaml"
+             xmlns:vm="clr-namespace:MyApp.ViewModels"
+             x:Class="MyApp.Views.TodoPage">
+
+    <!-- Set the BindingContext to the ViewModel -->
+    <ContentPage.BindingContext>
+        <vm:TodoViewModel />
+    </ContentPage.BindingContext>
+
+    <VerticalStackLayout Padding="24" Spacing="16">
+        <HorizontalStackLayout Spacing="8">
+            <!-- TwoWay binding — Entry text syncs with NewTask property -->
+            <Entry Text="{Binding NewTask}"
+                   Placeholder="New task..."
+                   HorizontalOptions="FillAndExpand" />
+            <!-- Command binding — button is disabled when CanAddTask returns false -->
+            <Button Text="Add" Command="{Binding AddTaskCommand}" />
+        </HorizontalStackLayout>
+
+        <!-- ItemsSource binding — CollectionView updates when ObservableCollection changes -->
+        <CollectionView ItemsSource="{Binding Tasks}">
+            <CollectionView.ItemTemplate>
+                <DataTemplate>
+                    <HorizontalStackLayout Spacing="8" Padding="0,4">
+                        <Label Text="{Binding .}"
+                               VerticalOptions="Center"
+                               HorizontalOptions="FillAndExpand" />
+                        <Button Text="✕"
+                                Command="{Binding Source={RelativeSource AncestorType={x:Type vm:TodoViewModel}}, Path=RemoveTaskCommand}"
+                                CommandParameter="{Binding .}" />
+                    </HorizontalStackLayout>
+                </DataTemplate>
+            </CollectionView.ItemTemplate>
+        </CollectionView>
+    </VerticalStackLayout>
+
+</ContentPage>
+```
+
+> [!NOTE]
+> `ObservableCollection<T>` notifies when items are **added or removed**, but not when a property of an existing item changes. For that, the item itself must implement `INotifyPropertyChanged`.
+
+> [!TIP]
+> Prefer commands over event handlers when using MVVM. Commands keep the code-behind clean — ideally it contains nothing beyond `InitializeComponent()`.
+
+> [!NOTE]
+> For more details, see [MS Learn: CollectionView](https://learn.microsoft.com/en-us/dotnet/maui/user-interface/controls/collectionview/?view=net-maui-10.0).
+
+**Assignment:** Open `Week06/Assignments/MvvmAndBinding`
+
+# Feedback
+
+We're halfway through the semester — your feedback helps us improve!
+
+- How are you finding the pacing of the seminars?
+- Are the assignments clear and at the right difficulty level?
+- Any topics you'd like more time on?
+- Suggestions for improvement?
+
+# Summary
+
+✓ Learned the MVVM architectural pattern and the roles of Model, View, and ViewModel
+
+✓ Set up data binding between Views and ViewModels using `BindingContext` and `{Binding}`
+
+✓ Built a complete MVVM example with `CommunityToolkit.Mvvm` — `[ObservableProperty]`, `[RelayCommand]`, and `ObservableCollection<T>`
+
+> [!IMPORTANT]
+> Any questions?
