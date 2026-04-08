@@ -4,12 +4,625 @@ description: "Practical work with parallel programming using tasks, Parallel API
 order: 8
 recommendedStudyFrom: "2026-04-06"
 recommendedStudyTo: "2026-04-12"
-availableFrom: "2026-04-09"
+availableFrom: "2026-04-08"
 tags:
   - parallel-programming
   - tasks
   - synchronization
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. ROPOT
+2. HW 02 Feedback
+3. Think-Pair-Share: Parallel Programming
+4. Tasks and Threads
+5. Parallel
+6. Synchronization and Concurrent Collections
+7. Coding Session
+
+# ROPOT
+
+- Any questions before we start the ROPOT?
+
+# HW 02 Feedback
+
+Here are common issues from your HW 02 submissions.
+
+## UI Logic Inside Services
+
+This is the same problem we saw in HW 01 with `Console.WriteLine` scattered in domain logic — but this time with MAUI. Some submissions had services directly showing alerts, navigating between pages, or updating UI elements. Services should contain **only business logic** and return results — the ViewModel decides what to display.
+
+```csharp
+// ❌ Service talks to the UI — same mistake as Console.WriteLine in HW 01
+public class GameService
+{
+    public async Task MakeGuess(ContentPage page, string guess)
+    {
+        if (guess == _answer)
+        {
+            await page.DisplayAlert("Correct!", "You win!", "OK");
+            await Shell.Current.GoToAsync("//StartPage");
+        }
+    }
+}
+
+// ✅ Service returns a result — ViewModel handles the UI
+public class GameService : IGameService
+{
+    public GuessResult MakeGuess(string guess)
+    {
+        if (guess == _answer)
+        {
+            return GuessResult.Correct;
+        }
+
+        return GuessResult.Wrong;
+    }
+}
+
+// ViewModel reacts to the result
+[RelayCommand]
+private async Task Guess()
+{
+    var result = _gameService.MakeGuess(CurrentGuess);
+    if (result == GuessResult.Correct)
+    {
+        await Shell.Current.GoToAsync("//StartPage");
+    }
+}
+```
+
+> [!TIP]
+> **Rule of thumb:** if a service references `ContentPage`, `Shell`, `DisplayAlert`, or any MAUI namespace — the UI logic doesn't belong there.
+
+## No Services for Application Logic
+
+Some submissions put all application logic directly in the ViewModel without extracting it into a service. For HW 02, this was acceptable — the scope was small enough. However, for the **Project**, you **must** separate business logic into services.
+
+```csharp
+// Acceptable for HW 02, but NOT for the Project
+public partial class GameViewModel : ObservableObject
+{
+    private readonly Random _random = new();
+    private int _secretNumber;
+
+    [RelayCommand]
+    private void NewGame()
+    {
+        _secretNumber = _random.Next(1, 101);
+        Lives = 3;
+        Score = 0;
+    }
+
+    [RelayCommand]
+    private void Guess(string input)
+    {
+        // All game logic lives here — hard to test, hard to reuse
+        if (int.TryParse(input, out int guess))
+        {
+            if (guess == _secretNumber)
+            {
+                Score++;
+            }
+            else
+            {
+                Lives--;
+            }
+        }
+    }
+}
+```
+
+> [!IMPORTANT]
+> For the Project, extract business logic into services (e.g., `IGameService`) and inject them into ViewModels. This makes your code testable, reusable, and follows separation of concerns.
+
+## Static Services
+
+Several submissions used `static` classes for services. While this works, it makes the code harder to test and impossible to swap implementations.
+
+```csharp
+// ❌ Static service — cannot be mocked, cannot be injected, hidden dependency
+public static class ScoreService
+{
+    private static int _highScore = 0;
+
+    public static void UpdateHighScore(int score)
+    {
+        if (score > _highScore)
+        {
+            _highScore = score;
+        }
+    }
+
+    public static int GetHighScore()
+    {
+        return _highScore;
+    }
+}
+
+// Usage — ViewModel depends on a specific static class
+public partial class GameViewModel : ObservableObject
+{
+    [RelayCommand]
+    private void EndGame()
+    {
+        ScoreService.UpdateHighScore(Score); // Hidden, untestable dependency
+    }
+}
+```
+
+```csharp
+// ✅ Instance service with an interface — injectable, testable, swappable
+public interface IScoreService
+{
+    void UpdateHighScore(int score);
+    int GetHighScore();
+}
+
+public class ScoreService : IScoreService
+{
+    private int _highScore = 0;
+
+    public void UpdateHighScore(int score)
+    {
+        if (score > _highScore)
+        {
+            _highScore = score;
+        }
+    }
+
+    public int GetHighScore()
+    {
+        return _highScore;
+    }
+}
+
+// Register as singleton so state is shared across the app
+builder.Services.AddSingleton<IScoreService, ScoreService>();
+```
+
+Static services cause the same problems as static state in general — **global state** that any code can access, impossible to test in isolation, and no way to have multiple instances.
+
+## Use the MVVM Toolkit
+
+Some submissions manually implemented `INotifyPropertyChanged`, wrote `OnPropertyChanged` calls by hand, or created custom `ICommand` implementations. The **CommunityToolkit.Mvvm** package handles all of this with source generators — use it to avoid writing boilerplate.
+
+```csharp
+// ❌ Manual INotifyPropertyChanged — verbose and error-prone
+public class GameViewModel : INotifyPropertyChanged
+{
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    private int _score;
+    public int Score
+    {
+        get => _score;
+        set
+        {
+            _score = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Score)));
+        }
+    }
+
+    public ICommand GuessCommand { get; }
+
+    public GameViewModel()
+    {
+        GuessCommand = new Command(() => Score++);
+    }
+}
+```
+
+```csharp
+// ✅ MVVM Toolkit — same functionality in a fraction of the code
+public partial class GameViewModel : ObservableObject
+{
+    [ObservableProperty]
+    public partial int Score { get; set; }
+
+    [RelayCommand]
+    private void Guess()
+    {
+        Score++;
+    }
+}
+```
+
+> [!TIP]
+> Install via `dotnet add package CommunityToolkit.Mvvm`. The toolkit generates all the `INotifyPropertyChanged` and `ICommand` boilerplate at compile time — less code, fewer bugs.
+
+# Think-Pair-Share: Parallel Programming
+
+Today we cover three topics: **Tasks and Threads**, **Parallel**, and **Synchronization and Concurrent Collections**.
+
+## Setup
+
+Form groups of 3–4 people. Each group is assigned **one topic** — you will become the experts and present your findings to the class.
+
+## Think
+
+On your own, read through the guiding questions for your topic. Think about what you **know** and what you're **unsure about**.
+
+### Topic 1: Tasks and Threads
+
+- What is the difference between a `Thread` and a `Task`?
+- Who manages the underlying threads — you or the runtime?
+- What happens when you create 1000 Threads vs 1000 Tasks?
+- How can you wait for a Task to finish? What are the trade-offs?
+- What is `ContinueWith` and why would you use it?
+
+### Topic 2: Parallel
+
+- What does the `Parallel` class do?
+- What is the difference between `Parallel.For`, `Parallel.ForEach`, and `Parallel.Invoke`?
+- When should you use `Parallel` and when should you avoid it?
+- Can you control how many threads are used?
+
+### Topic 3: Synchronization and Concurrent Collections
+
+- What is a race condition? When does it happen?
+- What is a `lock` and what should you lock on?
+- How is `SemaphoreSlim` different from a `lock`?
+- What are concurrent collections and when would you use them instead of locking?
+
+## Discuss
+
+Come together with your group and go through the guiding questions for your assigned topic. Share what you already know, help each other with things you're unsure about, and try to answer all the questions together. Feel free to use the **internet** or a **whiteboard** if it helps. At the end, prepare a short explanation of your topic for the rest of the class.
+
+## Present
+
+Each group presents their topic to the class — explain the key concepts and highlight anything surprising or tricky.
+
+# Tasks and Threads
+
+## Threads
+
+```csharp
+using System;
+using System.Threading;
+
+var thread = new Thread(() =>
+{
+    for (int i = 0; i < 5; i++)
+    {
+        Console.WriteLine($"Worker thread: {i}");
+        Thread.Sleep(100);
+    }
+});
+
+thread.Start();
+Console.WriteLine("Main thread continues...");
+thread.Join(); // Wait for the worker thread to finish
+Console.WriteLine("Worker thread finished.");
+```
+
+## Tasks (Without Async)
+
+```csharp
+using System;
+using System.Threading.Tasks;
+
+Task<int> task = Task.Run(() =>
+{
+    Console.WriteLine($"Running on thread {Environment.CurrentManagedThreadId}");
+    Thread.Sleep(500); // Simulate work
+    return 42;
+});
+
+Console.WriteLine($"Main thread: {Environment.CurrentManagedThreadId}");
+
+int result = task.Result; // Blocks until the task completes
+Console.WriteLine($"Task returned: {result}");
+```
+
+> [!CAUTION]
+> `.Wait()` and `.Result` **block** the calling thread. This is fine in console apps, but in UI applications it can freeze the interface. We'll learn about `async`/`await` in the next lecture.
+
+## ContinueWith
+
+```csharp
+using System;
+using System.Threading.Tasks;
+
+Task.Run(() =>
+{
+    Console.WriteLine("Step 1: Fetching data...");
+    Thread.Sleep(500);
+    return "Server response";
+})
+.ContinueWith(previousTask =>
+{
+    Console.WriteLine($"Step 2: Processing '{previousTask.Result}'...");
+    Thread.Sleep(300);
+    return previousTask.Result.Length;
+})
+.ContinueWith(previousTask =>
+{
+    Console.WriteLine($"Step 3: Result length is {previousTask.Result}");
+});
+
+Console.WriteLine("Main thread is not blocked!");
+Thread.Sleep(2000); // Keep the app alive to see results
+```
+
+Handling different outcomes with `TaskContinuationOptions`:
+
+```csharp
+var task = Task.Run(() =>
+{
+    Console.WriteLine("Working...");
+    Thread.Sleep(300);
+
+    // Toggle this to test different continuations:
+    // throw new InvalidOperationException("Something went wrong!");
+    return 42;
+});
+
+task.ContinueWith(t =>
+{
+    Console.WriteLine($"Success! Result: {t.Result}");
+}, TaskContinuationOptions.OnlyOnRanToCompletion);
+
+task.ContinueWith(t =>
+{
+    Console.WriteLine($"Error: {t.Exception?.InnerException?.Message}");
+}, TaskContinuationOptions.OnlyOnFaulted);
+
+task.ContinueWith(t =>
+{
+    Console.WriteLine("Task was canceled.");
+}, TaskContinuationOptions.OnlyOnCanceled);
+
+Thread.Sleep(1000);
+```
+
+> [!TIP]
+> `ContinueWith` is powerful but verbose. In most cases, `async`/`await` (next lecture) is a cleaner alternative.
+
+# Parallel
+
+## Parallel.For
+
+```csharp
+using System;
+using System.Threading.Tasks;
+
+// Sequential
+for (int i = 0; i < 10; i++)
+{
+    Console.Write($"{i} ");
+}
+// Output: 0 1 2 3 4 5 6 7 8 9
+
+Console.WriteLine();
+
+// Parallel — iterations may run in any order
+Parallel.For(0, 10, i =>
+{
+    Console.Write($"{i} ");
+});
+// Output: 0 2 4 1 6 3 8 5 7 9 (order varies per run)
+```
+
+## Parallel.ForEach
+
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+var urls = new List<string>
+{
+    "https://example.com/page1",
+    "https://example.com/page2",
+    "https://example.com/page3",
+    "https://example.com/page4"
+};
+
+Parallel.ForEach(urls, url =>
+{
+    Console.WriteLine($"[Thread {Environment.CurrentManagedThreadId}] Processing {url}");
+    Thread.Sleep(500); // Simulate work
+});
+```
+
+## Parallel.Invoke
+
+```csharp
+Parallel.Invoke(
+    () =>
+    {
+        Console.WriteLine("Task A — sorting data...");
+        Thread.Sleep(300);
+    },
+    () =>
+    {
+        Console.WriteLine("Task B — computing statistics...");
+        Thread.Sleep(500);
+    },
+    () =>
+    {
+        Console.WriteLine("Task C — generating report...");
+        Thread.Sleep(200);
+    }
+);
+Console.WriteLine("All tasks completed.");
+```
+
+## Controlling Parallelism
+
+```csharp
+var options = new ParallelOptions
+{
+    MaxDegreeOfParallelism = 4 // Use at most 4 threads
+};
+
+Parallel.For(0, 20, options, i =>
+{
+    Console.WriteLine($"[Thread {Environment.CurrentManagedThreadId}] Processing item {i}");
+    Thread.Sleep(200);
+});
+```
+
+> [!NOTE]
+> For more details, see [MS Learn: Task Parallel Library](https://learn.microsoft.com/en-us/dotnet/standard/parallel-programming/task-parallel-library-tpl).
+
+# Synchronization and Concurrent Collections
+
+## Lock (Monitor)
+
+```csharp
+int counter = 0;
+object lockObj = new();
+
+// ❌ Without lock — race condition, result is unpredictable
+var tasks = new Task[100];
+for (int i = 0; i < 100; i++)
+{
+    tasks[i] = Task.Run(() =>
+    {
+        for (int j = 0; j < 1000; j++)
+        {
+            counter++; // Not thread-safe!
+        }
+    });
+}
+Task.WaitAll(tasks);
+Console.WriteLine($"Without lock: {counter}"); // Often less than 100000
+
+// Reset
+counter = 0;
+
+// ✅ With lock — correct result every time
+for (int i = 0; i < 100; i++)
+{
+    tasks[i] = Task.Run(() =>
+    {
+        for (int j = 0; j < 1000; j++)
+        {
+            lock (lockObj)
+            {
+                counter++;
+            }
+        }
+    });
+}
+Task.WaitAll(tasks);
+Console.WriteLine($"With lock: {counter}"); // Always 100000
+```
+
+> [!IMPORTANT]
+> Always lock on a **private dedicated object** (`object lockObj = new()`), never on `this`, `typeof(...)`, or a string — those can be locked by external code, causing deadlocks.
+
+## SemaphoreSlim
+
+```csharp
+using System;
+using System.Threading;
+using System.Threading.Tasks;
+
+// Allow at most 3 concurrent downloads
+var semaphore = new SemaphoreSlim(3);
+
+var tasks = Enumerable.Range(1, 10).Select(i => Task.Run(() =>
+{
+    semaphore.Wait();
+    try
+    {
+        Console.WriteLine($"[{DateTime.Now:ss.fff}] Download {i} started (Thread {Environment.CurrentManagedThreadId})");
+        Thread.Sleep(1000); // Simulate download
+        Console.WriteLine($"[{DateTime.Now:ss.fff}] Download {i} finished");
+    }
+    finally
+    {
+        semaphore.Release();
+    }
+}));
+
+Task.WaitAll(tasks.ToArray());
+```
+
+> [!IMPORTANT]
+> Always release the semaphore in a `finally` block to avoid permanently blocking other threads if an exception occurs.
+
+## Concurrent Collections
+
+```csharp
+using System;
+using System.Collections.Concurrent;
+using System.Threading.Tasks;
+
+// ConcurrentBag — no lock needed
+var bag = new ConcurrentBag<int>();
+
+Parallel.For(0, 1000, i =>
+{
+    bag.Add(i);
+});
+
+Console.WriteLine($"ConcurrentBag count: {bag.Count}"); // Always 1000
+```
+
+```csharp
+// ConcurrentDictionary — atomic add-or-update operations
+var wordCount = new ConcurrentDictionary<string, int>();
+var words = new[] { "hello", "world", "hello", "foo", "world", "hello" };
+
+Parallel.ForEach(words, word =>
+{
+    wordCount.AddOrUpdate(word, 1, (key, oldValue) => oldValue + 1);
+});
+
+foreach (var kvp in wordCount)
+{
+    Console.WriteLine($"{kvp.Key}: {kvp.Value}");
+}
+// hello: 3
+// world: 2
+// foo: 1
+```
+
+```csharp
+// ConcurrentQueue — thread-safe producer-consumer
+var queue = new ConcurrentQueue<string>();
+
+// Producer
+Parallel.For(0, 5, i =>
+{
+    queue.Enqueue($"Item {i}");
+    Console.WriteLine($"Produced: Item {i}");
+});
+
+// Consumer
+while (queue.TryDequeue(out var item))
+{
+    Console.WriteLine($"Consumed: {item}");
+}
+```
+
+> [!NOTE]
+> For more details, see [MS Learn: Thread-Safe Collections](https://learn.microsoft.com/en-us/dotnet/standard/collections/thread-safe/).
+
+# Coding Session
+
+**Assignment:** Open `Week08/Assignments/Threads` and then `Week08/Assignments/Tasks`
+
+# Summary
+
+✓ Completed ROPOT
+
+✓ Reviewed common HW 02 issues (UI logic in services, missing services, static services, MVVM Toolkit usage)
+
+✓ Discussed parallel programming topics in groups — identified knowledge gaps and shared insights
+
+✓ Showcased Threads, Tasks, and `ContinueWith`
+
+✓ Showcased `Parallel.For`, `Parallel.ForEach`, and `Parallel.Invoke`
+
+✓ Showcased `lock`, `SemaphoreSlim`, and concurrent collections
+
+✓ Practiced with coding assignments
+
+> [!IMPORTANT]
+> Any questions?
