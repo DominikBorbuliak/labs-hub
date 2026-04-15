@@ -2,6 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
+import { Button } from "./ui/button";
 
 export const CodeBlock = (props: React.ComponentProps<"pre">) => {
   const preRef = useRef<HTMLPreElement>(null);
@@ -22,13 +23,14 @@ export const CodeBlock = (props: React.ComponentProps<"pre">) => {
         className="bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto border-0 mb-0!"
         {...props}
       />
-      <button
+      <Button
+        type="button"
         onClick={handleCopy}
         className="absolute top-2 right-2 p-1.5 rounded-md bg-gray-700/60 hover:bg-gray-600/80 text-gray-300 hover:text-gray-100 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
         aria-label="Copy code"
       >
         {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
-      </button>
+      </Button>
     </div>
   );
 };
