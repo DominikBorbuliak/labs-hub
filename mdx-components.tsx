@@ -9,6 +9,8 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { Spoiler } from "@/components/spoiler";
+import { CodeBlock } from "@/components/code-block";
 
 const components: MDXComponents = {
   h1: ({ node: _node, ...props }) => (
@@ -76,12 +78,7 @@ const components: MDXComponents = {
       </code>
     );
   },
-  pre: ({ node: _node, ...props }) => (
-    <pre
-      className="bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto mb-4 border-0"
-      {...props}
-    />
-  ),
+  pre: ({ node: _node, ...props }) => <CodeBlock {...props} />,
   blockquote: ({ node: _node, ...props }) => (
     <blockquote
       className="border-l-4 border-primary bg-muted pl-3 pr-3 py-1.5 italic my-4 text-muted-foreground"
@@ -95,6 +92,7 @@ const components: MDXComponents = {
   tr: ({ node: _node, ...props }) => <TableRow {...props} />,
   th: ({ node: _node, ...props }) => <TableHead {...props} />,
   td: ({ node: _node, ...props }) => <TableCell {...props} />,
+  Spoiler,
   img: ({ node: _node, ...props }) => {
     const { alt, width, height, ...rest } = props;
 

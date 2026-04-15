@@ -181,4 +181,31 @@ A paragraph that combines everything: **bold**, _italic_, ~~strikethrough~~, `in
 
 ---
 
+## Spoiler
+
+The `<Spoiler>` component hides content behind a blur. Double-click to reveal, double-click again to hide.
+
+<Spoiler>
+
+This content was hidden! You can put any MDX content inside a spoiler.
+
+- Lists work
+- **Bold** and _italic_ too
+- Even `inline code`
+
+</Spoiler>
+
+<Spoiler label="Double-click to see the answer">
+
+```typescript
+function fibonacci(n: number): number {
+  if (n <= 1) return n;
+  return fibonacci(n - 1) + fibonacci(n - 2);
+}
+```
+
+</Spoiler>
+
+---
+
 _End of showcase._

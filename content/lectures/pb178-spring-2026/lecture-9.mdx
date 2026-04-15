@@ -4,12 +4,413 @@ description: "Completion of parallel programming topics and practical introducti
 order: 9
 recommendedStudyFrom: "2026-04-13"
 recommendedStudyTo: "2026-04-19"
-availableFrom: "2026-04-16"
+availableFrom: "2026-04-15"
 tags:
   - async
   - parallel-programming
   - tasks
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. ROPOT
+2. Projects
+3. Parallel Programming Q&A
+4. Asynchronous Programming
+5. Coding Restaurant
+6. Assignments
+
+# ROPOT
+
+- You can fill the ROPOT for this lecture.
+
+# Projects
+
+- **Deadline for project topic pick is 17.4.**
+- Everybody should answer the ROPOT even if you picked a sample topic.
+- Penalization for not filling the ROPOT is **-3 points**.
+- Custom themes should be discussed in advance — most of you already did. Please change your topics based on my feedback if you received it.
+
+# Parallel Programming Q&A
+
+- Any remaining questions about parallel programming from the previous lectures?
+- This is a good time to clarify anything about threads, tasks, `Parallel` API, locks, or concurrent collections before we move on.
+
+# Asynchronous Programming
+
+## What Is Asynchronous Programming?
+
+**Parallel programming** is about doing multiple things **at the same time** — using multiple threads to speed up CPU-bound work.
+
+**Asynchronous programming** is about **not blocking** while waiting for something to finish — freeing up the current thread to do other work while an I/O operation completes (e.g., reading a file, calling an API, querying a database).
+
+|                 | Parallel                                | Async                                  |
+| --------------- | --------------------------------------- | -------------------------------------- |
+| **Goal**        | Speed up CPU-bound work                 | Keep the app responsive during I/O     |
+| **Mechanism**   | Multiple threads running simultaneously | Release the thread while waiting       |
+| **Typical use** | Data processing, calculations           | Web requests, file I/O, database calls |
+
+> [!IMPORTANT]
+> Async does **not** mean "runs on another thread." It means "I can do something else while this operation completes." The operation might not use a thread at all (e.g., waiting for a network response).
+
+## Async and Await
+
+In C#, asynchronous programming is built around the `async` and `await` keywords.
+
+```csharp
+using System;
+using System.Threading.Tasks;
+
+// An async method returns Task (or Task<T> if it returns a value)
+async Task<string> FetchDataAsync()
+{
+    Console.WriteLine("Starting to fetch data...");
+    await Task.Delay(2000); // Simulates waiting for an I/O operation (non-blocking)
+    Console.WriteLine("Data fetched!");
+    return "Server response";
+}
+
+// Calling the async method
+string result = await FetchDataAsync();
+Console.WriteLine($"Received: {result}");
+```
+
+Key rules:
+
+- Mark the method with `async`
+- Return `Task` (no result) or `Task<T>` (with result)
+- Use `await` to asynchronously wait for the result — but you don't have to `await` immediately. You can store the `Task` and `await` it later, which lets you start multiple operations before waiting for any of them
+- Name async methods with the **`Async` suffix** (e.g., `FetchDataAsync`, `LoadUserAsync`) — this is a widely followed .NET convention that makes it clear the method returns a `Task` and should be awaited
+- `async void` should **only** be used for event handlers — never for regular methods
+
+```csharp
+// ❌ async void — three serious problems:
+// 1. Caller can't await it — no way to know when it finishes
+// 2. Exceptions crash the process — they can't be caught by the caller
+// 3. Makes testing impossible — no Task to assert on
+async void LoadData()
+{
+    var data = await FetchDataAsync(); // If this throws, the entire app crashes!
+    Console.WriteLine(data);
+}
+
+// ✅ async Task — caller can await, catch exceptions, and test
+async Task LoadDataAsync()
+{
+    var data = await FetchDataAsync();
+    Console.WriteLine(data);
+}
+```
+
+```csharp
+// Why async void is dangerous — exception behavior
+
+async void DangerousAsync()
+{
+    throw new Exception("Boom!"); // This will CRASH the entire application!
+}
+
+async Task SafeAsync()
+{
+    throw new Exception("Boom!"); // This can be caught by the caller with try/catch
+}
+
+async Task ShowDangerousAsync()
+{
+    try
+    {
+        DangerousAsync(); // Exception escapes — cannot be caught here!
+    }
+    catch (Exception) { /* Never reached */ }
+}
+
+async Task ShowSafeAsync()
+{
+    try
+    {
+        await SafeAsync(); // Exception is properly caught
+    }
+    catch (Exception) { /* This works */ }
+}
+```
+
+## Sequential vs Concurrent Async
+
+Just because you use `async`/`await` doesn't mean things run concurrently. If you `await` each call one by one, they run **sequentially**:
+
+```csharp
+// Sequential — each operation waits for the previous one to finish
+async Task SequentialAsync()
+{
+    string user = await FetchUserAsync();       // ~1 second
+    string orders = await FetchOrdersAsync();   // ~1 second
+    string reviews = await FetchReviewsAsync();  // ~1 second
+    // Total: ~3 seconds
+}
+```
+
+To run independent operations **concurrently**, start them all first, then await them together:
+
+```csharp
+// Concurrent — all operations start at the same time
+async Task ConcurrentAsync()
+{
+    Task<string> userTask = FetchUserAsync();       // Started
+    Task<string> ordersTask = FetchOrdersAsync();   // Started
+    Task<string> reviewsTask = FetchReviewsAsync(); // Started
+
+    // Now await them all — they're already running
+    string user = await userTask;
+    string orders = await ordersTask;
+    string reviews = await reviewsTask;
+    // Total: ~1 second (the longest one)
+}
+```
+
+## Task.WhenAll and Task.WhenAny
+
+`Task.WhenAll` waits for **all** tasks to complete. Use it when you need every result before proceeding.
+
+```csharp
+async Task LoadDashboardAsync()
+{
+    Task<User> userTask = GetUserAsync();
+    Task<List<Order>> ordersTask = GetOrdersAsync();
+    Task<Stats> statsTask = GetStatsAsync();
+
+    // Wait for all three to complete
+    await Task.WhenAll(userTask, ordersTask, statsTask);
+
+    // All results are now available
+    Console.WriteLine($"User: {userTask.Result}");
+    Console.WriteLine($"Orders: {ordersTask.Result.Count}");
+    Console.WriteLine($"Stats: {statsTask.Result}");
+}
+```
+
+`Task.WhenAny` returns as soon as **any one** task completes. Use it when you only need the fastest result or want to implement timeouts.
+
+```csharp
+async Task<string> FetchWithTimeoutAsync()
+{
+    Task<string> fetchTask = FetchDataAsync();
+    Task timeoutTask = Task.Delay(5000);
+
+    Task completedTask = await Task.WhenAny(fetchTask, timeoutTask);
+
+    if (completedTask == fetchTask)
+    {
+        return await fetchTask; // Data arrived in time
+    }
+    else
+    {
+        throw new TimeoutException("Fetch took too long!");
+    }
+}
+```
+
+## Best Practices and Common Pitfalls
+
+```csharp
+// ❌ Blocking on async code — can cause deadlocks, especially in UI apps
+string result = FetchDataAsync().Result; // BLOCKS the thread!
+FetchDataAsync().Wait();                 // BLOCKS the thread!
+
+// ✅ Await properly
+string result = await FetchDataAsync();
+```
+
+```csharp
+// ❌ Unnecessary async/await — just wrapping a return value
+async Task<int> GetValueAsync()
+{
+    return await Task.FromResult(42); // Pointless overhead
+}
+
+// ✅ Return the task directly when there's no additional logic
+Task<int> GetValueAsync()
+{
+    return Task.FromResult(42);
+}
+```
+
+> [!TIP]
+> **Async all the way** — once you start using `async`/`await`, use it consistently through the entire call chain. Mixing sync and async code is the #1 source of deadlocks.
+
+# Coding Restaurant
+
+## The Activity
+
+Form pairs. Each pair will build a **Console Application** that simulates a restaurant kitchen. Your restaurant specializes in **one dish** — pick from the list below:
+
+- 🍕 **Pizza**
+- 🍝 **Lasagna**
+- 🍔 **Burger**
+- 🍣 **Sushi**
+- 🥗 **Salad**
+
+Think of yourselves as **kitchen owners** — you tell the cooks what to do and you don't care how they do it internally. You just want all the dishes prepared **as fast as possible**.
+
+## How It Works
+
+Every kitchen action is represented by calling this helper method:
+
+```csharp
+static async Task DoActionAsync(string actionName)
+{
+    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started: {actionName}");
+    await Task.Delay(Random.Shared.Next(1000, 5001));
+    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Finished: {actionName}");
+}
+
+// Usage examples:
+await DoActionAsync("Chopping tomatoes");
+await DoActionAsync("Grilling patty");
+await DoActionAsync("Baking pizza in oven");
+await DoActionAsync("Slicing mushrooms");
+```
+
+You can also create **subtask methods** that group related actions together. For example, a `PrepareToppingsAsync` method that internally chops tomatoes, slices mushrooms, grates cheese, etc.:
+
+```csharp
+static async Task PrepareToppingsAsync()
+{
+    // Each of these is a separate action inside the subtask
+    await DoActionAsync("Chopping tomatoes");
+    await DoActionAsync("Slicing mushrooms");
+    await DoActionAsync("Grating cheese");
+}
+```
+
+Think about which actions inside a subtask can run at the same time and which must wait for each other.
+
+## Stages
+
+### Stage 1: Plan Your Dish
+
+Before writing any code, think about:
+
+- What ingredients and steps does your dish need?
+- Which steps can happen **at the same time**? (e.g., chopping tomatoes while heating the oven)
+- Which steps must **wait** for others? (e.g., you can't assemble the pizza before the dough is ready)
+
+### Stage 2: Prepare One Dish
+
+Write async code that simulates preparing **a single dish**. Use `DoActionAsync` for each step. Think about how to run independent steps concurrently using what you learned today.
+
+### Stage 3: Handle Multiple Orders
+
+Expand your code to handle **multiple orders** at the same time (e.g., 3 pizzas). You can hardcode the orders — no need for user input.
+
+## Presentations
+
+At the end, a few pairs will present their code. We'll discuss:
+
+- How did you decide what can run in parallel?
+- How did you handle dependencies between steps?
+- What could be improved in your solution?
+
+## Example Solution
+
+<Spoiler label="Double click to reveal the example solution">
+
+```csharp
+using System;
+using System.Threading.Tasks;
+
+// Helper method for simulating kitchen actions
+static async Task DoActionAsync(string actionName)
+{
+    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Started: {actionName}");
+    await Task.Delay(Random.Shared.Next(1000, 5001));
+    Console.WriteLine($"[{DateTime.Now:HH:mm:ss}] Finished: {actionName}");
+}
+
+// Subtask: Prepare filling (multiple independent subtasks)
+static async Task PrepareFillingAsync()
+{
+    Console.WriteLine("--- Preparing filling ---");
+
+    Task dicePeppers = DoActionAsync("Dicing peppers");
+    Task sliceOnions = DoActionAsync("Slicing onions");
+    Task shreddingCheese = DoActionAsync("Shredding cheese");
+    Task cookChicken = DoActionAsync("Grilling and slicing chicken");
+
+    await Task.WhenAll(dicePeppers, sliceOnions, shreddingCheese, cookChicken);
+
+    Console.WriteLine("--- All filling ready ---");
+}
+
+// Subtask: Prepare salsa
+static async Task PrepareSalsaAsync()
+{
+    Task chopTomatoes = DoActionAsync("Chopping tomatoes");
+    Task minceCilantro = DoActionAsync("Mincing cilantro and jalapeño");
+
+    await Task.WhenAll(chopTomatoes, minceCilantro);
+
+    await DoActionAsync("Mixing salsa ingredients");
+}
+
+// Prepare a single quesadilla
+static async Task PrepareQuesadillaAsync(int orderNumber)
+{
+    Console.WriteLine($"\n=== Quesadilla #{orderNumber} — Starting preparation ===");
+
+    // Filling and salsa can be prepared at the same time
+    Task fillingTask = PrepareFillingAsync();
+    Task salsaTask = PrepareSalsaAsync();
+    Task heatGriddle = DoActionAsync("Heating the griddle");
+
+    await Task.WhenAll(fillingTask, salsaTask, heatGriddle);
+
+    // Assembly must wait for filling
+    await DoActionAsync("Laying tortilla and adding filling");
+    await DoActionAsync("Folding and pressing quesadilla");
+
+    // Cooking must wait for assembly and griddle
+    await DoActionAsync("Cooking quesadilla on griddle — first side");
+    await DoActionAsync("Flipping and cooking second side");
+
+    // Final step
+    await DoActionAsync("Cutting into wedges and plating with salsa");
+
+    Console.WriteLine($"=== Quesadilla #{orderNumber} — Ready to serve! ===\n");
+}
+
+// Handle multiple orders concurrently
+Console.WriteLine("Restaurant is open! Taking orders...\n");
+
+Task order1 = PrepareQuesadillaAsync(1);
+Task order2 = PrepareQuesadillaAsync(2);
+Task order3 = PrepareQuesadillaAsync(3);
+
+await Task.WhenAll(order1, order2, order3);
+
+Console.WriteLine("All orders completed!");
+```
+
+</Spoiler>
+
+# Assignments
+
+- If there's enough time, you can start working on `Week09/Assignments/Async`.
+
+# Summary
+
+✓ Filled ROPOT
+
+✓ Discussed project topic deadlines and requirements
+
+✓ Addressed remaining questions about parallel programming
+
+✓ Introduced asynchronous programming — what it is and how it differs from parallelism
+
+✓ Showcased `async`/`await`, sequential vs concurrent async, `Task.WhenAll`, and `Task.WhenAny`
+
+✓ Covered best practices and common pitfalls (blocking, `async void`, async all the way)
+
+✓ Built restaurant simulations using asynchronous programming in pairs
+
+> [!IMPORTANT]
+> Any questions?
