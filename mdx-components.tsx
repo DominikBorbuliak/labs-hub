@@ -9,6 +9,7 @@ import {
   TableCell,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
+import { Spoiler } from "@/components/spoiler";
 
 const components: MDXComponents = {
   h1: ({ node: _node, ...props }) => (
@@ -95,6 +96,7 @@ const components: MDXComponents = {
   tr: ({ node: _node, ...props }) => <TableRow {...props} />,
   th: ({ node: _node, ...props }) => <TableHead {...props} />,
   td: ({ node: _node, ...props }) => <TableCell {...props} />,
+  Spoiler,
   img: ({ node: _node, ...props }) => {
     const { alt, width, height, ...rest } = props;
 
