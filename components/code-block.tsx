@@ -3,8 +3,12 @@
 import { useCallback, useRef, useState } from "react";
 import { Check, Copy } from "lucide-react";
 import { Button } from "./ui/button";
+import { cn } from "@/lib/utils";
 
-export const CodeBlock = (props: React.ComponentProps<"pre">) => {
+export const CodeBlock = ({
+  className,
+  ...props
+}: React.ComponentProps<"pre">) => {
   const preRef = useRef<HTMLPreElement>(null);
   const [copied, setCopied] = useState(false);
 
@@ -20,7 +24,10 @@ export const CodeBlock = (props: React.ComponentProps<"pre">) => {
     <div className="relative group mb-4">
       <pre
         ref={preRef}
-        className="bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto border-0 mb-0!"
+        className={cn(
+          "bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto border-0 mb-0!",
+          className
+        )}
         {...props}
       />
       <Button
