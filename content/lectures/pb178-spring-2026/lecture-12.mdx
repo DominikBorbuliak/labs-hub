@@ -1,14 +1,212 @@
 ---
-title: "Consultations and Bonus Session 2"
-description: "Consultations and place for bonus session 2."
+title: "AI Workshop and Consultations"
+description: "A workshop on AI and consultations for the final project."
 order: 12
 recommendedStudyFrom: "2026-05-04"
 recommendedStudyTo: "2026-05-10"
-availableFrom: "2026-05-07"
+availableFrom: "2026-05-03"
 tags:
-  - consultation
-  - bonus
+  - ai-workshop
+  - consultations
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. Consultations
+2. AI Workshop
+3. Extending AI Tools
+4. Persona based approach
+5. Working with AI in cycles
+6. Plan and execute
+
+# Consultations
+
+- Feel free to ask any questions related to the final project at any point during the lecture or the AI Workshop.
+
+# AI Workshop
+
+In this workshop you will use a CLI AI tool to solve a real task hands-on. The goal is not to arrive at a perfect solution — it is to practice working with AI effectively and to reflect on what worked and what did not.
+
+## Groups
+
+Form groups of **2 people**. If the number of students is odd, one group of 3 is fine. Each group should have **at least one person with a CLI AI tool** ready to use — don't worry if you don't have one, you can pair with your partner.
+
+## Setup
+
+Fork the following repository:
+
+- [https://github.com/DominikBorbuliak/AiWorkshop](https://github.com/DominikBorbuliak/AiWorkshop)
+
+## Steps
+
+1. **Read the README** — make sure both partners understand what is expected before prompting.
+2. **Discuss your approach** — how will you break the task down? What context does the AI need upfront?
+3. **Execute** — use your CLI AI tool to implement the solution. Do not hesitate to start over if you realise you picked the wrong approach.
+4. **Ask for help** — do not hesitate to ask if you get stuck.
+
+## Discussion
+
+At the end of the workshop we will have a short discussion:
+
+- What approach did your group take?
+- What worked well and what did not?
+- What would you do differently?
+
+# Extending AI Tools
+
+Out of the box, an AI tool can chat and generate text. The sections below describe the building blocks that extend it into something far more capable.
+
+## Rule
+
+A **rule** (also called a custom instruction) is a project-level or user-level directive that shapes how the AI behaves in every conversation. Rules are defined in configuration files (e.g., `.github/copilot-instructions.md`) and are injected automatically — you never have to repeat yourself.
+
+- Enforce coding conventions and project-specific standards
+- Set tone, language, or response style
+- Reduce the need to re-explain context in every prompt
+
+## Skill
+
+A **skill** is a named, reusable capability that extends what the AI can do. Skills are defined once and invoked by name, allowing the AI to perform complex domain-specific tasks beyond plain text generation.
+
+- Defined once, reusable across conversations
+- Can be invoked explicitly by name, but the AI can also figure out on its own which skill to use based on your prompt
+- If you already provide the necessary information upfront in your prompt, the skill can skip its usual clarifying steps
+- Useful for repetitive, project-specific tasks
+
+## Plugin
+
+A **plugin** is similar to an extension in Visual Studio Code — it adds new capabilities to the AI tool. A plugin might let the AI understand a new file format, connect to a specific service, or come bundled with a pre-configured agent setup tailored to a particular workflow.
+
+- Adds capabilities on top of the base AI tool
+- May include custom agent setups, commands, or context providers
+- Examples: language-specific extensions, framework-aware assistants, CI integrations
+
+## MCP
+
+**MCP (Model Context Protocol)** is an open standard that defines how AI models communicate with external tools and data sources. Where plugins are often one-off, tool-specific integrations, MCP provides a universal interface — any AI client that speaks MCP can use any MCP server without custom glue code.
+
+- Open standard maintained by Anthropic
+- AI acts as an **MCP client**; external tools are exposed as **MCP servers**
+- MCP servers can expose tools (actions), resources (data), and prompts (templates)
+- Growing ecosystem: GitHub, filesystems, databases, browsers, CI systems, Jira (Atlassian), and more — for example, the Jira MCP server lets you query and update tickets directly from the AI without leaving your terminal
+
+> [!NOTE]
+> Plugins and MCPs serve the same fundamental purpose — connecting AI to the outside world. MCP is the standardized, interoperable version of that concept.
+
+# Persona based approach
+
+The **persona-based approach** means giving the AI a specific identity or role at the start of a prompt instead of asking a generic question. Framing the AI as a named expert makes its responses more focused, specialized, and appropriate for your context.
+
+**Example prompts:**
+
+- _"You are a frontend developer. Review this component and point out UX and accessibility issues."_
+- _"You are a senior backend developer. Review this service layer for correctness, performance, and maintainability."_
+- _"Act as a code reviewer. Give me a thorough review of the following pull request diff."_
+- _"You are a security expert. Identify potential vulnerabilities in this API endpoint."_
+
+**Why it works:**
+
+- Narrows the AI's perspective to a specific domain
+- Reduces generic, unfocused responses
+- Sets the expected depth, tone, and vocabulary
+- Useful whenever you need the AI to take a particular viewpoint — reviewer, teacher, end user, etc.
+
+Personas don't have to live only in your prompt. They can be defined in dedicated files (e.g., a markdown file per persona) that contain a much richer description — the role's responsibilities, preferred coding style, things to watch out for, example responses, and more. You then reference or paste that file when needed, giving the AI a far more detailed and consistent identity than a single sentence ever could.
+
+> [!TIP]
+> The more concrete the persona (seniority level, tech stack, company context), the more targeted and useful the response tends to be.
+
+> [!NOTE]
+> Interesting read: [GitHub Copilot: A Persona-Based Approach to Real-World Development](https://dev.to/playfulprogramming/github-copilot-a-persona-based-approach-to-real-world-development-56ee)
+
+# Working with AI in cycles
+
+When tackling any non-trivial task with AI, resist the temptation to do it all in one big prompt. Instead, break the work into small, well-defined cycles and **verify the result at each step** before moving on.
+
+## The cycle
+
+Each iteration follows the same loop:
+
+1. Give the AI a **focused, scoped task**
+2. **Verify** the output — run tests, linter, type checker, or review manually
+3. If verification **passes** → move to the next cycle
+4. If verification **fails** → correct it now, before accumulating more bad changes
+
+## Why verification matters
+
+AI can produce incorrect output confidently and without hesitation. Small errors compound — the further you go without checking, the harder recovery becomes and the more context gets polluted with wrong assumptions.
+
+Good verification steps to use after each cycle:
+
+- **Automated tests** — fastest and most reliable signal
+- **Build / type checker** — catches structural errors early
+- **Linter** — catches style and common mistakes
+- **Manual review** — for logic that automated checks don't cover yet
+
+> [!IMPORTANT]
+> If you don't have automated checks, set them up before you let the AI loose. Without verification, you are flying blind.
+
+## Example
+
+Two agents working in a cycle on the same task:
+
+- **Agent 1 — Implementer**: receives the task and writes the code
+- **Agent 2 — Reviewer**: receives the code and reviews it, looking for bugs, edge cases, and bad practices
+
+The cycle repeats until the review comes back clean:
+
+1. Implementer produces or updates the code
+2. Reviewer reviews and either approves or returns a list of issues
+3. If issues found → Implementer addresses them and the cycle repeats
+4. If review passes → done
+
+Each role gets a **fresh, focused context** — the implementer doesn't need to know how to review, and the reviewer doesn't need to know the full implementation history. This separation keeps both agents on task and reduces noise.
+
+# Plan and execute
+
+For complex tasks, split the work into two distinct phases and potentially use different AI models for each.
+
+## Phase 1 — Plan with a powerful model
+
+Use a capable, expensive model (e.g., Claude Opus, GPT-4o) to reason deeply about the problem and produce a detailed, well-structured plan. This phase is purely about **quality of thinking** — you want the model to consider edge cases, identify risks, and break the work into clear steps.
+
+- Describe the full problem and all relevant context
+- Ask for a step-by-step plan, not code yet
+- Review and refine the plan until you are satisfied with it
+
+## Phase 2 — Execute with a cheaper model, fresh context
+
+Start a **brand new conversation** and give the cheaper, faster model (e.g., Claude Sonnet, GPT-4o mini) the plan as its input. It doesn't need to reason about the big picture — it just executes one step at a time, applying the cycle approach as it goes.
+
+- Paste the plan from Phase 1 into the new context
+- Work through the steps one by one
+- The plan is the source of truth; the model doesn't need to re-derive it
+
+## Why it works
+
+|             | Phase 1 — Plan           | Phase 2 — Execute   |
+| ----------- | ------------------------ | ------------------- |
+| **Model**   | Expensive, powerful      | Cheap, fast         |
+| **Goal**    | Reason about the problem | Implement the steps |
+| **Context** | Full problem description | Just the plan       |
+| **Output**  | A clear, detailed plan   | Working code        |
+
+> [!TIP]
+> This approach also works with the same model for both phases. The key insight is separating planning from execution and starting with a clean context for execution — the model upgrade is an optimization on top.
+
+# Summary
+
+✓ Practiced working with AI hands-on in the workshop — solved a real task in groups and reflected on the approach
+
+✓ Learned how to extend AI tools — rules, skills, plugins, MCPs, and agents — and what is worth setting up in a project
+
+✓ Explored the persona-based approach — framing the AI as a specific expert for more focused responses
+
+✓ Understood the cycle approach — break work into small steps, verify each one, and never move on from a broken state
+
+✓ Learned the plan and execute approach — use a powerful model to plan, then a cheaper model with fresh context to execute
+
+✓ Got answers to questions about the final project
+
+> [!IMPORTANT]
+> Any questions?
