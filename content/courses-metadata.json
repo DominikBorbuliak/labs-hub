@@ -1,5 +1,11 @@
 [
   {
+    "slug": "pv179-autumn-2026",
+    "code": "PV179",
+    "name": "System Development in C#/.NET",
+    "semester": "Autumn 2026"
+  },
+  {
     "slug": "pb178-spring-2026",
     "code": "PB178",
     "name": "Introduction to Development in C#/.NET",
