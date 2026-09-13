@@ -19,7 +19,7 @@ export const Spoiler = ({
   const toggle = () => setRevealed((v) => !v);
 
   return (
-    <div className="relative mt-1 mb-4 rounded-lg">
+    <div className="relative group mt-1 mb-4 rounded-lg">
       {!revealed ? (
         <button
           type="button"
@@ -38,7 +38,7 @@ export const Spoiler = ({
           onClick={toggle}
           aria-expanded={revealed}
           aria-label="Hide content"
-          className="absolute top-12 right-2 z-10 p-1.5 rounded-md bg-gray-700/60 hover:bg-gray-600/80 text-gray-300 hover:text-gray-100 cursor-pointer"
+          className="absolute top-12 right-2 z-10 p-1.5 rounded-md bg-gray-700/60 hover:bg-gray-600/80 text-gray-300 hover:text-gray-100 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer"
         >
           <Eye className="size-4" aria-hidden="true" />
         </Button>
