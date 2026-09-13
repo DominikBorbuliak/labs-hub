@@ -46,7 +46,8 @@ export const Spoiler = ({
       <div
         className={cn(
           "transition-all duration-300 [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-          !revealed && "blur-md select-none pointer-events-none"
+          !revealed &&
+            "blur-md select-none pointer-events-none [&_button]:opacity-0!"
         )}
       >
         {children}
