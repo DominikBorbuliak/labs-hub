@@ -1,5 +1,7 @@
 FROM mcr.microsoft.com/devcontainers/javascript-node:latest
 
+RUN corepack enable
+
 USER node
 
 ENV PATH="/home/node/.local/bin:${PATH}"
