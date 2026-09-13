@@ -39,11 +39,11 @@ export const CodeBlock = ({
   }, []);
 
   return (
-    <div className="relative group mb-4">
+    <div className="relative group mt-2 mb-2">
       <pre
         ref={preRef}
         className={cn(
-          "bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto border-0 mb-0!",
+          "bg-[#0d1117]! text-gray-100! p-3 rounded-lg overflow-x-auto border-0 mt-0! mb-0!",
           className
         )}
         {...props}

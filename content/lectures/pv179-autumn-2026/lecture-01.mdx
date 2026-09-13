@@ -5,6 +5,7 @@ order: 1
 recommendedStudyFrom: "2026-09-14"
 recommendedStudyTo: "2026-09-20"
 availableFrom: "2026-09-14"
+
 tags:
   - dotnet
   - entity-framework
@@ -12,5 +13,141 @@ tags:
   - api
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. Who are we?
+2. Course Organization
+3. Project
+4. 3-Layered Architecture
+5. Today's Assignment
+
+# Who are we?
+
+- **Dominik Borbuliak**
+- **Background**: PVA and SWE at MUNI FI
+- **Teaching Experience**: PV178, PV179
+- **Professional Experience**: ~7 years (first 4 years part-time)
+  - Currently working as a **Software Developer at Tricentis**
+- **Technical Focus**:
+  - Primarily backend development in **.NET with Azure cloud services**
+  - Frontend development with **React** and **ASP.NET MVC**
+  - **AI usage** in day-to-day development workflows
+
+> [!NOTE]
+> Don't hesitate to ask us anything! We'll try to answer your questions or at least point you in the right direction.
+
+> [!NOTE]
+> **Jakub Formánek**, the other seminar tutor, is not present today — he'll introduce himself on the next seminar.
+
+# Course Organization
+
+## General
+
+- **Attendance**: Mandatory for at least **one team member** per seminar so your team doesn't miss important information
+  - If nobody from your team can attend, you must **notify one of us in advance**
+- **Communication**:
+  - **Discord server**: Fastest way to reach us
+  - **Email**: Also available, but slower response time
+- **Seminar "slides":** [labs-hub.vercel.app](https://labs-hub.vercel.app/courses/pv179-autumn-2026)
+  - Feel free to provide feedback
+- **AI Usage**: Allowed but should be used sensibly
+- **Other organizational information:** [IS MUNI](https://is.muni.cz/auth/el/fi/podzim2026/PV179/index.qwarp?prejit=9039489)
+
+> [!IMPORTANT]
+> There will be a **midterm test** during the semester.
+
+> [!TIP]
+> There is a large [WIKI](https://gitlab.fi.muni.cz/pv179/wiki) that should cover everything you'll need during the semester.
+
+> [!NOTE]
+> What AI tools do you use?
+
+## Development Environment
+
+- **Suggested IDEs:** Visual Studio or Rider
+  - **VS Code** can be used as well, but setup and workflow may be a bit harder
+
+## Seminars
+
+- Our seminars take place **before the lecture**, but recordings from previous years should be available if you want to prepare
+- Seminars will be mostly **practical**, with some theory at the beginning
+
+# Project
+
+- **Milestone deadlines** for our seminar group are **shifted by 1 week** due to the public holiday on **28.9.2026**
+- **Topic:** pick a topic from **Milestone 1**, or propose a **custom topic**
+  - Custom topics must follow the project requirements and **need to be approved by us beforehand**
+- **Milestone 1** contains an **Excel table** where you must fill in:
+  - Team members
+  - Link to your repository
+  - Chosen topic
+- **Deadline for team assembly:** 29.9.2026
+- Your project must be hosted on **GitLab**
+  - We will assign ourselves as reviewers in the **Milestone 1 Excel table**, not directly in your repository
+  - You need to **add us to your repository** yourselves so we can review it
+- It's good practice to include **startup instructions** for us in `README.md`
+
+# 3-Layered Architecture
+
+This is the architecture we will use throughout this seminar.
+
+<Spoiler label="Double click to reveal the 3-layered architecture">
+
+```plain
+┌────────────────────────────────────────┐
+│           Presentation Layer           │  Controllers, Views, API endpoints
+└────────────────────┬───────────────────┘
+                     │ depends on
+                     ▼
+┌────────────────────────────────────────┐
+│ Business Logic Layer / Business Layer  │  Services, business rules, validation
+└────────────────────┬───────────────────┘
+                     │ depends on
+                     ▼
+┌────────────────────────────────────────┐
+│           Data Access Layer            │  Repositories, DbContext, entities
+└────────────────────┬───────────────────┘
+                     │
+                     ▼
+┌────────────────────────────────────────┐
+│                Database                │  Actual data storage (e.g., SQL Server, SQLite)
+└────────────────────────────────────────┘
+```
+
+- **Presentation Layer (PL)**: Handles user interaction — receives requests and returns responses (e.g., API controllers, MVC views)
+- **Business Logic Layer / Business Layer (BLL/BL)**: Contains the application's core logic — validation, calculations, orchestration of operations
+- **Data Access Layer (DAL)**: Responsible for communicating with the database — entities, `DbContext`, repositories
+- **Database (DB)**: Where the data actually lives — only ever accessed through the Data Access Layer
+
+A typical .NET solution structure for this architecture looks like this:
+
+```plain
+MyApp.sln
+├── MyApp.Api          (ASP.NET Web API project — API controllers, Program.cs, appsettings, DI configuration)
+├── MyApp.BL           (class library — services, interfaces, DTOs)
+├── MyApp.DAL          (class library — DbContext, entities, repositories)
+└── MyApp.Migrations   (class library — EF Core migrations)
+```
+
+</Spoiler>
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-01](https://gitlab.fi.muni.cz/pv179/Seminar-01)
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Course organization explained
+
+✓ Project topic and team assembly deadlines clarified
+
+✓ 3-layered architecture introduced
+
+✓ Today's assignment downloaded
+
+> [!IMPORTANT]
+> Any questions?

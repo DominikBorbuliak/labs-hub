@@ -17,7 +17,7 @@ export const Spoiler = ({
 
   return (
     <div
-      className="relative my-4 rounded-lg"
+      className="relative mt-1 mb-4 rounded-lg"
       onDoubleClick={() => setRevealed((v) => !v)}
     >
       {!revealed && (
