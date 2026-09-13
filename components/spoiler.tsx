@@ -37,7 +37,7 @@ export const Spoiler = ({
           onClick={toggle}
           aria-expanded={revealed}
           aria-label="Hide content"
-          className="absolute top-2 right-2 z-10 p-1.5 rounded-md bg-gray-700/60 hover:bg-gray-600/80 text-gray-300 hover:text-gray-100 cursor-pointer"
+          className="absolute top-2 left-2 z-10 p-1.5 rounded-md bg-gray-700/60 hover:bg-gray-600/80 text-gray-300 hover:text-gray-100 cursor-pointer"
         >
           <Eye className="size-4" aria-hidden="true" />
         </button>
