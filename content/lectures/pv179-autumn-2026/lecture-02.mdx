@@ -164,7 +164,7 @@ The [EntityFramework.Exceptions](https://github.com/Giorgi/EntityFramework.Excep
 There are several ways to seed a database with EF Core:
 
 - **Model managed data** (`HasData`) — data is baked into a migration snapshot
-- **Configuration options seeding** (`UseSeeding` / `UseAsyncSeeding`) — seeding logic runs at runtime, outside of migrations
+- **Configuration options seeding** (`UseSeeding` / `UseAsyncSeeding`) — runtime seeding logic invoked when EF Core runs `EnsureCreated`, `Migrate`, or `dotnet ef database update`
 - **Custom initialization logic** — manually written code that runs on startup
 - **Manual migration customization** — hand-editing a generated migration
 
@@ -188,7 +188,10 @@ protected override void OnModelCreating(ModelBuilder modelBuilder)
 
 ## Using `UseSeeding` / `UseAsyncSeeding`
 
-Since EF Core 9, you can instead configure seeding in `OnConfiguring`. This logic runs at **runtime** rather than being baked into a migration, so it isn't affected by the `DateTime.UtcNow` problem above — this is now the recommended approach:
+Since EF Core 9, you can instead configure seeding in `OnConfiguring`. Unlike `HasData`, this seeding logic isn't baked into a migration file — it's runtime code that EF Core invokes whenever `EnsureCreated`, `Migrate`, or `dotnet ef database update` runs (protected by a migration locking mechanism, so it's safe even with concurrent app instances). Because it always executes as code rather than being diffed against a snapshot, it isn't affected by the `DateTime.UtcNow` problem above. This is now the recommended approach.
+
+> [!WARNING]
+> `UseSeeding`/`UseAsyncSeeding` only run when one of those operations (`EnsureCreated`, `Migrate`, `dotnet ef database update`) is actually invoked. Simply configuring the callbacks does **not** seed the database on its own — make sure your app (or deployment pipeline) calls `Migrate()` (or an equivalent) on startup.
 
 ```csharp
 protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
