@@ -7,3 +7,6 @@ USER node
 ENV PATH="/home/node/.local/bin:${PATH}"
 
 RUN curl -fsSL https://gh.io/copilot-install | PREFIX="/home/node/.local" bash
+
+RUN npm config set prefix "/home/node/.local" && \
+    npm install -g @anthropic-ai/claude-code
