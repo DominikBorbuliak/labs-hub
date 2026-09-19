@@ -1,15 +1,289 @@
 ---
 title: "Data Access Layer"
-description: "Understanding the Data Access Layer (DAL) architecture, working with entities, and establishing efficient database connections and operations."
+description: "Understanding the role and purpose of the Data Access Layer, working with EF Core (modeling, related data loading, tracking), and seeding the database with initial data."
 order: 2
 recommendedStudyFrom: "2026-09-21"
 recommendedStudyTo: "2026-09-27"
-availableFrom: "2026-09-21"
+availableFrom: "2026-09-19"
 tags:
   - dal
-  - entity
-  - database
+  - ef-core
+  - db-seeding
 ---
 
+# Agenda
+
+1. Who are we? (continuation)
+2. Organizational Info
+3. Data Access Layer (DAL)
+4. Entity Framework Core (EF Core)
+5. DB Seeding
+6. Today's Assignment
+
+# Who are we? (continuation)
+
+> [!NOTE]
+> Placeholder — **Jakub Formánek** will introduce himself here.
+
+# Organizational Info
+
+> [!IMPORTANT]
+> **28.9.2026** is a public holiday — there will be **no seminar session** that week. To account for this, every remaining lecture (lecture 3 through lecture 11) is shifted by **one week** compared to the original schedule — e.g. lecture 3 is now available from **5.10.2026** (instead of 28.9.2026), lecture 4 from **12.10.2026**, and so on through lecture 11.
+
+- The **Excel sheet** for filling in your team information is now ready and available in **Milestone 1** of the [interactive syllabus](https://is.muni.cz/auth/el/fi/podzim2026/PV179/index.qwarp?prejit=9039503)
+- Make sure to fill in your team information in the **Group 4 Excel sheet**
+
+# Data Access Layer (DAL)
+
+The **Data Access Layer (DAL)** is the part of the 3-layered architecture responsible for communicating with the database. It's the only layer that should ever talk to the database directly — everything else (business logic, presentation) goes through it.
+
+- **Role**: Encapsulates all database access logic — entities, `DbContext`, repositories
+- **Purpose**: Keeps persistence concerns (SQL, connection handling, data mapping) separate from business logic, making the application easier to test, maintain, and swap the underlying data store if needed
+
+## Packages
+
+Common packages used for the DAL in .NET:
+
+- **Entity Framework Core** — full-featured ORM, code-first or database-first
+- **Dapper** — lightweight micro-ORM, closer to raw SQL, very fast
+- **NHibernate** — mature, feature-rich ORM (less common in new projects nowadays)
+
+## Code-First vs Database-First
+
+- **Code-First**: You define your entities (C# classes) first, and EF Core generates the database schema from them via migrations
+  - Easier to keep the schema in sync with your code and version control
+- **Database-First**: The database schema already exists, and you generate/scaffold your entities from it
+  - Useful when working with an existing or externally managed database
+
+# Entity Framework Core (EF Core)
+
+## Components
+
+- **`DbContext`** — represents a session with the database, used to query and save entities
+- **`DbSet<T>`** — represents a collection/table of entities of type `T`
+- **Migrations** — versioned, incremental changes to the database schema generated from your model
+- **LINQ queries** — used to query entities in a strongly-typed, readable way
+
+## Creating and Configuring the Model
+
+You can configure your entities and relationships in two ways:
+
+- **Data Annotations** — attributes declared directly on your entity classes/properties (e.g. `[Required]`, `[MaxLength(200)]`, `[ForeignKey]`)
+- **Fluent API** — configuration written in code inside `OnModelCreating`, which offers more configuration options than annotations (e.g. composite keys, indexes, query filters)
+
+For larger models, it's common to move each entity's Fluent API configuration into its own class implementing `IEntityTypeConfiguration<T>`, instead of putting everything into a single `OnModelCreating` method:
+
+```csharp
+public class ProductConfiguration : IEntityTypeConfiguration<Product>
+{
+    public void Configure(EntityTypeBuilder<Product> builder)
+    {
+        builder.Property(p => p.Name).IsRequired().HasMaxLength(200);
+        builder.HasOne(p => p.Category).WithMany(c => c.Products);
+    }
+}
+
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.ApplyConfiguration(new ProductConfiguration());
+    // or apply all configurations from the assembly at once:
+    // modelBuilder.ApplyConfigurationsFromAssembly(typeof(AppDbContext).Assembly);
+}
+```
+
+> [!TIP]
+> [MS Learn: Creating and configuring a model](https://learn.microsoft.com/en-us/ef/core/modeling/)
+
+## Loading Related Data
+
+EF Core supports three ways of loading related entities:
+
+- **Eager loading** — related data is loaded as part of the initial query using `Include`:
+
+  ```csharp
+  var products = context.Products
+      .Include(p => p.Category)
+      .ToList();
+  ```
+
+- **Lazy loading** — related data is loaded automatically the first time it's accessed. Unlike eager/explicit loading, this is **not enabled by default** and requires one of two setups:
+  - **With proxies** (simplest): install `Microsoft.EntityFrameworkCore.Proxies`, call `.UseLazyLoadingProxies()` in `OnConfiguring`, and mark navigation properties as `virtual`
+  - **Without proxies**: inject `ILazyLoader` into the entity's constructor and call it from the navigation property's getter — no `virtual`/inheritance requirement, at the cost of coupling the entity to EF Core
+
+  ```csharp
+  var product = context.Products.First();
+  var category = product.Category; // triggers a separate query here, once lazy loading is set up
+  ```
+
+- **Explicit loading** — related data is loaded manually on demand, later in code:
+
+  ```csharp
+  var product = context.Products.First();
+  context.Entry(product)
+      .Reference(p => p.Category)
+      .Load();
+  ```
+
+> [!TIP]
+> [MS Learn: Loading related data](https://learn.microsoft.com/en-us/ef/core/querying/related-data/)
+
+## Tracking vs No-Tracking Queries
+
+By default, EF Core **tracks** entities returned from a query — it keeps a snapshot of each entity so it can detect changes and persist them with `SaveChanges()`. This tracking has a memory and CPU cost, since EF Core needs to compare entity states.
+
+For read-only queries (e.g. displaying data, no updates), use `AsNoTracking()` to skip this overhead and improve performance:
+
+```csharp
+var products = context.Products
+    .AsNoTracking()
+    .ToList();
+```
+
 > [!WARNING]
-> Work in progress.
+> If you modify a no-tracked entity and call `SaveChanges()`, **nothing happens** — EF Core has no snapshot to compare against, so it has no idea the entity changed. To persist changes made to a no-tracked entity, you need to explicitly re-attach and mark it as modified, e.g. `context.Update(product)` or `context.Entry(product).State = EntityState.Modified`.
+
+> [!TIP]
+> [MS Learn: Tracking vs no-tracking queries](https://learn.microsoft.com/en-us/ef/core/querying/tracking)
+
+## Filtering & Global Query Filters
+
+Besides regular `Where()` filtering inside individual LINQ queries, EF Core also supports **global query filters** — a predicate configured once on an entity type that is automatically applied to **every** query for that type:
+
+```csharp
+modelBuilder.Entity<Product>().HasQueryFilter(p => !p.IsDeleted);
+```
+
+This is especially useful for implementing **soft delete**: instead of physically removing rows, you mark them with `IsDeleted = true`, and the global filter automatically hides them from all regular queries — without adding `.Where(p => !p.IsDeleted)` everywhere by hand. When you do need the filtered-out data (e.g. an admin view of deleted items), use `IgnoreQueryFilters()`.
+
+> [!TIP]
+> [MS Learn: Global query filters](https://learn.microsoft.com/en-us/ef/core/querying/filters?tabs=ef10)
+
+## Handling EF Core Exceptions
+
+When saving changes fails (e.g. a unique constraint violation, a required column left `null`, a foreign key violation), EF Core wraps the failure in a `DbUpdateException`, whose `InnerException` is the actual **provider-specific** exception (e.g. `SqlException` for SQL Server). This makes database-agnostic error handling awkward, since you'd need to inspect provider-specific error codes or messages to know what went wrong.
+
+The [EntityFramework.Exceptions](https://github.com/Giorgi/EntityFramework.Exceptions) package solves this by translating those provider-specific exceptions into common, typed exceptions — e.g. `UniqueConstraintException`, `CannotInsertNullException`, `ReferenceConstraintException`.
+
+> [!WARNING]
+> Referencing the package alone doesn't change anything — you also need to install the package matching **your database provider** and explicitly enable it with `UseExceptionProcessor()`. Without this setup, `SaveChanges()` still throws a plain `DbUpdateException`.
+
+```bash
+dotnet add package EntityFrameworkCore.Exceptions.SqlServer
+```
+
+```csharp
+protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+{
+    optionsBuilder
+        .UseSqlServer(connectionString)
+        .UseExceptionProcessor();
+}
+```
+
+Once configured, you can catch the specific, typed exceptions instead of a generic `DbUpdateException`. For this to actually throw a `UniqueConstraintException`, the property needs a unique constraint configured in the model, e.g.:
+
+```csharp
+modelBuilder.Entity<Product>().HasIndex(p => p.Name).IsUnique();
+```
+
+```csharp
+try
+{
+    context.Products.Add(new Product { Name = "Duplicate Name" }); // "Duplicate Name" already exists
+    context.SaveChanges();
+}
+catch (UniqueConstraintException)
+{
+    // a product with this Name already exists
+}
+catch (ReferenceConstraintException)
+{
+    // a referenced entity (e.g. Category) doesn't exist
+}
+```
+
+# DB Seeding
+
+**DB seeding** is the process of populating a database with initial data — for example default roles, reference data, or sample data for development and testing.
+
+There are several ways to seed a database with EF Core:
+
+- **Model managed data** (`HasData`) — data is baked into a migration snapshot
+- **Configuration options seeding** (`UseSeeding` / `UseAsyncSeeding`) — runtime seeding logic invoked when EF Core runs `EnsureCreated`, `Migrate`, or `dotnet ef database update`
+- **Custom initialization logic** — manually written code that runs on startup
+- **Manual migration customization** — hand-editing a generated migration
+
+## Using `HasData`
+
+```csharp
+protected override void OnModelCreating(ModelBuilder modelBuilder)
+{
+    modelBuilder.Entity<Category>().HasData(
+        new Category { Id = 1, Name = "Books" },
+        new Category { Id = 2, Name = "Electronics" }
+    );
+}
+```
+
+> [!TIP]
+> It's a good idea to structure and split the seed data across multiple files (e.g. one per entity, or alongside its `IEntityTypeConfiguration<T>`) instead of piling everything into `OnModelCreating`.
+
+> [!WARNING]
+> Avoid using `DateTime.UtcNow` (or any non-deterministic value) directly in data passed to `HasData`. Since the value is evaluated when the migration is generated, EF Core will detect a "change" and generate a new migration every time — use a fixed, hardcoded `DateTime` value instead.
+
+## Using `UseSeeding` / `UseAsyncSeeding`
+
+Since EF Core 9, you can instead configure seeding in `OnConfiguring`. Unlike `HasData`, this seeding logic isn't baked into a migration file — it's runtime code that EF Core invokes whenever `EnsureCreated`, `Migrate`, or `dotnet ef database update` runs (protected by a migration locking mechanism, so it's safe even with concurrent app instances). Because it always executes as code rather than being diffed against a snapshot, it isn't affected by the `DateTime.UtcNow` problem above. This is now the recommended approach.
+
+> [!WARNING]
+> `UseSeeding`/`UseAsyncSeeding` only run when one of those operations (`EnsureCreated`, `Migrate`, `dotnet ef database update`) is actually invoked. Simply configuring the callbacks does **not** seed the database on its own — make sure your app (or deployment pipeline) calls `Migrate()` (or an equivalent) on startup.
+
+```csharp
+protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+    => optionsBuilder
+        .UseSqlServer(connectionString)
+        .UseSeeding((context, _) =>
+        {
+            if (!context.Set<Category>().Any(c => c.Name == "Books"))
+            {
+                context.Set<Category>().Add(new Category { Name = "Books" });
+                context.SaveChanges();
+            }
+        })
+        .UseAsyncSeeding(async (context, _, cancellationToken) =>
+        {
+            if (!await context.Set<Category>().AnyAsync(c => c.Name == "Books", cancellationToken))
+            {
+                context.Set<Category>().Add(new Category { Name = "Books" });
+                await context.SaveChangesAsync(cancellationToken);
+            }
+        });
+```
+
+> [!TIP]
+> [MS Learn: Data seeding](https://learn.microsoft.com/en-us/ef/core/modeling/data-seeding)
+
+Useful packages for more advanced seeding scenarios:
+
+- **Bogus** — generates realistic fake data (names, addresses, emails, ...) for larger seed datasets
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-02](https://gitlab.fi.muni.cz/pv179/seminar-02-2026-data-access-layer)
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Data Access Layer (DAL) explained
+
+✓ EF Core components and querying strategies covered
+
+✓ DB seeding demonstrated
+
+✓ Today's assignment downloaded
+
+> [!IMPORTANT]
+> Any questions?
