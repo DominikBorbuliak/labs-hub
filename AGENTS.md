@@ -20,7 +20,7 @@ This repository uses **Conventional Commits** with the following exact style
 (match existing history in `git log`):
 
 ```
-<type>: <Capitalized short description> (#<PR number>)
+<type>: <Capitalized short description>[ (#<PR number>)]
 ```
 
 - `<type>` is lowercase, e.g. `feat`, `fix`, `chore`, `docs`.
@@ -28,10 +28,10 @@ This repository uses **Conventional Commits** with the following exact style
   imperative/descriptive form (e.g. `Added lecture 9 to pb178 spring 2026`,
   `Fixed page width`).
 - No scopes are used (e.g. not `feat(app): ...`).
-- The PR number is appended in parentheses at the end, e.g. `(#24)`. This is
-  normally added automatically by GitHub when the PR is merged (squash merge),
-  so when authoring commits directly you can omit it — but keep the
-  `type: Capitalized description` format.
+- The `(#<PR number>)` suffix is **optional** when authoring commits
+  directly — it's normally added automatically by GitHub when the PR is
+  merged (squash merge), e.g. `(#24)`. Never add it yourself; just use
+  `type: Capitalized description`.
 
 Examples from history:
 
