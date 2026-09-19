@@ -118,9 +118,9 @@ Register new courses in `content/courses-metadata.json` (fields: `slug`,
 ## CI
 
 `.github/workflows/pr-check.yml` runs on every push to `main` and every PR,
-using Node 24 and pnpm 10, and executes in order: `pnpm install
---frozen-lockfile`, `pnpm lint`, `pnpm format:check`, `pnpm build`. A PR is
-not mergeable unless all of these succeed.
+using Node 24 and pnpm 10, and executes in order: `pnpm install --frozen-lockfile`,
+`pnpm lint`, `pnpm format:check`, `pnpm build`. A PR is not mergeable unless
+all of these succeed.
 
 There are currently no automated tests in this repository.
 
