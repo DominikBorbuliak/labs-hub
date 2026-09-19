@@ -26,7 +26,10 @@ tags:
 # Organizational Info
 
 > [!IMPORTANT]
-> **28.9.2026** is a public holiday — there will be **no seminar** that week.
+> **28.9.2026** is a public holiday — there will be **no seminar session** that week.
+
+> [!NOTE]
+> This only affects the seminar meeting itself — lecture content on this site continues to be published on the normal weekly schedule for self-study.
 
 - The **Excel sheet** for filling in your team information is now ready and available in **Milestone 1** of the [interactive syllabus](https://is.muni.cz/auth/el/fi/podzim2026/PV179/index.qwarp?prejit=9039503)
 - Make sure to fill in your team information in the **Group 4 Excel sheet**
@@ -64,9 +67,12 @@ Common packages used for the DAL in .NET:
 
 ## Creating and Configuring the Model
 
-You configure your entities and relationships using Data Annotations or the Fluent API inside `OnModelCreating`.
+You can configure your entities and relationships in two ways:
 
-For larger models, it's common to move each entity's configuration into its own class implementing `IEntityTypeConfiguration<T>`, instead of putting everything into a single `OnModelCreating` method:
+- **Data Annotations** — attributes declared directly on your entity classes/properties (e.g. `[Required]`, `[MaxLength(200)]`, `[ForeignKey]`)
+- **Fluent API** — configuration written in code inside `OnModelCreating`, which offers more configuration options than annotations (e.g. composite keys, indexes, query filters)
+
+For larger models, it's common to move each entity's Fluent API configuration into its own class implementing `IEntityTypeConfiguration<T>`, instead of putting everything into a single `OnModelCreating` method:
 
 ```csharp
 public class ProductConfiguration : IEntityTypeConfiguration<Product>
@@ -155,7 +161,41 @@ This is especially useful for implementing **soft delete**: instead of physicall
 
 When saving changes fails (e.g. a unique constraint violation, a required column left `null`, a foreign key violation), EF Core wraps the failure in a `DbUpdateException`, whose `InnerException` is the actual **provider-specific** exception (e.g. `SqlException` for SQL Server). This makes database-agnostic error handling awkward, since you'd need to inspect provider-specific error codes or messages to know what went wrong.
 
-The [EntityFramework.Exceptions](https://github.com/Giorgi/EntityFramework.Exceptions) package solves this by translating those provider-specific exceptions into common, typed exceptions — e.g. `UniqueConstraintException`, `CannotInsertNullException`, `ReferenceConstraintException` — so you can catch and handle them the same way regardless of which database provider you're using.
+The [EntityFramework.Exceptions](https://github.com/Giorgi/EntityFramework.Exceptions) package solves this by translating those provider-specific exceptions into common, typed exceptions — e.g. `UniqueConstraintException`, `CannotInsertNullException`, `ReferenceConstraintException`.
+
+> [!WARNING]
+> Referencing the package alone doesn't change anything — you also need to install the package matching **your database provider** and explicitly enable it with `UseExceptionProcessor()`. Without this setup, `SaveChanges()` still throws a plain `DbUpdateException`.
+
+```bash
+dotnet add package EntityFrameworkCore.Exceptions.SqlServer
+```
+
+```csharp
+protected override void OnConfiguring(DbContextOptionsBuilder optionsBuilder)
+{
+    optionsBuilder
+        .UseSqlServer(connectionString)
+        .UseExceptionProcessor();
+}
+```
+
+Once configured, you can catch the specific, typed exceptions instead of a generic `DbUpdateException`:
+
+```csharp
+try
+{
+    context.Products.Add(new Product { Name = "Duplicate Name" });
+    context.SaveChanges();
+}
+catch (UniqueConstraintException)
+{
+    // a product with this Name already exists
+}
+catch (ReferenceConstraintException)
+{
+    // a referenced entity (e.g. Category) doesn't exist
+}
+```
 
 # DB Seeding
 
