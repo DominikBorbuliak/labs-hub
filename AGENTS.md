@@ -8,6 +8,12 @@ Labs Hub is an educational platform for university seminars, built with Next.js
 (App Router), React, TypeScript, MDX and Tailwind CSS. See `README.md` for the
 full tech stack and project structure.
 
+## Committing
+
+**Never run `git commit` (or otherwise create a commit) without explicit
+approval from the user.** After staging/preparing changes, ask the user
+whether to commit now or defer, and only commit once they confirm.
+
 ## Commit Message Format
 
 This repository uses **Conventional Commits** with the following exact style
@@ -38,14 +44,15 @@ fix: Fixed page width (#6)
 
 ## Code Quality Requirements
 
-Before finishing any code change, run and ensure these pass:
+Every code change must pass the same checks CI runs (see `CI` section below):
 
 ```bash
 pnpm lint          # ESLint (eslint-config-next + eslint-config-prettier)
 pnpm format:check  # Prettier check
+pnpm build         # Next.js build
 ```
 
-Use the fixer scripts to auto-resolve issues where possible:
+Use the fixer scripts to auto-resolve lint/format issues where possible:
 
 ```bash
 pnpm lint:fix
@@ -90,6 +97,18 @@ This project uses **pnpm** as the package manager (see `pnpm-workspace.yaml` /
   renders `frontmatter.title` separately), and typically introduce a numbered
   outline with a `# Agenda` heading.
 
+## Authoring/Editing Lecture Content
+
+- `content/lectures/example/showcase-lecture.mdx` is the reference for how
+  lecture content should look — it demonstrates every supported MDX element
+  and formatting option. Consult it when creating or restructuring lectures.
+- Lecture frontmatter fields (see `LectureMetadata` in `lib/lectures.ts`):
+  `title`, `description`, `order`, `recommendedStudyFrom`,
+  `recommendedStudyTo`, `availableFrom`, `tags`.
+- Whenever a lecture's content is added or changed, review its `title`,
+  `description`, and `tags` frontmatter and update them if they no longer
+  accurately reflect the content.
+
 ## Adding a New Course
 
 Register new courses in `content/courses-metadata.json` (fields: `slug`,
@@ -107,9 +126,9 @@ There are currently no automated tests in this repository.
 
 ## Validation Checklist for Changes
 
-Run the same checks CI runs before considering a change done:
-
-1. `pnpm lint`
-2. `pnpm format:check`
-3. `pnpm build`
-4. Commit messages follow the format above.
+1. `pnpm lint`, `pnpm format:check`, and `pnpm build` all pass (see `Code
+Quality Requirements` above).
+2. For lecture content changes, `title`, `description`, and `tags`
+   frontmatter have been reviewed and updated if needed (see `Authoring/
+Editing Lecture Content` above).
+3. Commit messages follow the format above.
