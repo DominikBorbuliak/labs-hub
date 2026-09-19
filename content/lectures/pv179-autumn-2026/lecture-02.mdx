@@ -106,11 +106,13 @@ EF Core supports three ways of loading related entities:
       .ToList();
   ```
 
-- **Lazy loading** — related data is loaded automatically the first time it's accessed (requires proxies and `virtual` navigation properties):
+- **Lazy loading** — related data is loaded automatically the first time it's accessed. Unlike eager/explicit loading, this is **not enabled by default** and requires one of two setups:
+  - **With proxies** (simplest): install `Microsoft.EntityFrameworkCore.Proxies`, call `.UseLazyLoadingProxies()` in `OnConfiguring`, and mark navigation properties as `virtual`
+  - **Without proxies**: inject `ILazyLoader` into the entity's constructor and call it from the navigation property's getter — no `virtual`/inheritance requirement, at the cost of coupling the entity to EF Core
 
   ```csharp
   var product = context.Products.First();
-  var category = product.Category; // triggers a separate query here
+  var category = product.Category; // triggers a separate query here, once lazy loading is set up
   ```
 
 - **Explicit loading** — related data is loaded manually on demand, later in code:
