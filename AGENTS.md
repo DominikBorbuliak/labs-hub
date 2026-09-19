@@ -126,9 +126,9 @@ There are currently no automated tests in this repository.
 
 ## Validation Checklist for Changes
 
-1. `pnpm lint`, `pnpm format:check`, and `pnpm build` all pass (see `Code
-Quality Requirements` above).
+1. `pnpm lint`, `pnpm format:check`, and `pnpm build` all pass (see
+   "Code Quality Requirements" above).
 2. For lecture content changes, `title`, `description`, and `tags`
-   frontmatter have been reviewed and updated if needed (see `Authoring/
-Editing Lecture Content` above).
+   frontmatter have been reviewed and updated if needed (see
+   "Authoring/Editing Lecture Content" above).
 3. Commit messages follow the format above.
