@@ -1,16 +1,490 @@
 ---
-title: "DbContext, Multiple Migration Projects, Repository, and Unit of Work"
-description: "Deep dive into DbContext configuration, managing multiple migration projects, implementing Repository and Unit of Work patterns for clean data access architecture."
+title: "Unit of Work, App Settings, and Dependency Injection"
+description: "Team assembly and repository deadline, implementing the Repository and Unit of Work patterns on top of EF Core, configuring the application with appsettings, environments, environment variables, the command line and user secrets, and registering services with the correct dependency injection lifetimes."
 order: 3
 recommendedStudyFrom: "2026-10-05"
 recommendedStudyTo: "2026-10-11"
-availableFrom: "2026-10-05"
+availableFrom: "2026-10-01"
 tags:
-  - dbcontext
-  - migration-projects
+  - project
   - repository
   - unit-of-work
+  - configuration
+  - user-secrets
+  - dependency-injection
 ---
 
+# Agenda
+
+1. Deadline: Teams & Repositories
+2. Unit of Work (UoW)
+3. App Settings
+4. Dependency Injection (DI)
+5. Today's Assignment
+
+# Deadline: Teams & Repositories
+
+> [!IMPORTANT]
+> The deadline for **team assembly** and **repository setup** is **today, 5.10.2026** (the original 28.9.2026 deadline, shifted by one week because of the public holiday).
+
+Before the end of the day, make sure your team has done all of the following:
+
+- [ ] Filled in the **team members** in the **Group 4 Excel sheet** in **Milestone 1** of the [interactive syllabus](https://is.muni.cz/auth/el/fi/podzim2026/PV179/index.qwarp?prejit=9039503)
+- [ ] Filled in the **chosen topic**. A **custom topic** has to be **approved by us** first, so if you haven't asked yet, ask today
+- [ ] Created a repository on **GitLab** and put its **link** in the Excel sheet
+- [ ] **Added both of us** to the repository. We assign ourselves only in the Excel sheet, so without access we can't review anything
+
 > [!WARNING]
-> Work in progress.
+> If your team still has fewer members than required, or you can't find a team at all, **tell us today** on Discord. Don't wait until the first milestone review.
+
+# Unit of Work (UoW)
+
+> **Unit of Work** maintains a list of objects affected by a business transaction and coordinates the writing out of changes. (Martin Fowler, _Patterns of Enterprise Application Architecture_)
+
+In other words, a business operation (e.g. _"create an order and decrease the stock of every ordered product"_) usually changes several entities. These changes should be saved **together**: either all of them, or none of them.
+
+## Repository + Unit of Work
+
+The two patterns are usually used together:
+
+- **Repository** is a collection-like abstraction over **one entity type** (`GetByIdAsync`, `GetAllAsync`, `Add`, `Remove`, ...). It **does not save** anything on its own
+- **Unit of Work** groups the repositories that share **one `DbContext`** and exposes a single `SaveChangesAsync()` (or `CommitAsync()`) that persists everything at once
+
+```plain
+┌──────────────────────────────────────────────────────┐
+│ Business Layer (e.g. OrderService)                   │
+└──────────────────────────┬───────────────────────────┘
+                           │ IUnitOfWork
+                           ▼
+┌──────────────────────────────────────────────────────┐
+│ UnitOfWork                                           │
+│   ├── Products   : IRepository<Product>  ─┐          │
+│   ├── Orders     : IRepository<Order>    ─┼─► same   │
+│   └── SaveChangesAsync()                 ─┘ DbContext│
+└──────────────────────────────────────────────────────┘
+```
+
+## Generic Repository
+
+```csharp
+public interface IRepository<TEntity> where TEntity : class
+{
+    Task<TEntity?> GetByIdAsync(int id, CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<TEntity>> GetAllAsync(CancellationToken cancellationToken = default);
+    void Add(TEntity entity);
+    void Update(TEntity entity);
+    void Remove(TEntity entity);
+}
+
+public class Repository<TEntity>(AppDbContext context) : IRepository<TEntity>
+    where TEntity : class
+{
+    protected readonly DbSet<TEntity> DbSet = context.Set<TEntity>();
+
+    public async Task<TEntity?> GetByIdAsync(int id, CancellationToken cancellationToken = default)
+        => await DbSet.FindAsync([id], cancellationToken);
+
+    public async Task<IReadOnlyList<TEntity>> GetAllAsync(CancellationToken cancellationToken = default)
+        => await DbSet.AsNoTracking().ToListAsync(cancellationToken);
+
+    public void Add(TEntity entity) => DbSet.Add(entity);
+
+    public void Update(TEntity entity) => DbSet.Update(entity);
+
+    public void Remove(TEntity entity) => DbSet.Remove(entity);
+}
+```
+
+> [!TIP]
+> When an entity needs more specific queries (e.g. "products in a category, including the category"), create a specific repository: `IProductRepository : IRepository<Product>` with an extra `GetByCategoryAsync(...)` method. This keeps `Include`s and filters **inside the DAL** instead of leaking them into the Business Layer.
+
+## Unit of Work
+
+```csharp
+public interface IUnitOfWork
+{
+    IRepository<Product> Products { get; }
+    IRepository<Order> Orders { get; }
+
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+
+public class UnitOfWork(AppDbContext context) : IUnitOfWork
+{
+    public IRepository<Product> Products { get; } = new Repository<Product>(context);
+    public IRepository<Order> Orders { get; } = new Repository<Order>(context);
+
+    public Task<int> SaveChangesAsync(CancellationToken cancellationToken = default)
+        => context.SaveChangesAsync(cancellationToken);
+}
+```
+
+Usage in the Business Layer:
+
+```csharp
+public class OrderService(IUnitOfWork unitOfWork)
+{
+    public async Task PlaceOrderAsync(int productId, int quantity, CancellationToken cancellationToken)
+    {
+        var product = await unitOfWork.Products.GetByIdAsync(productId, cancellationToken)
+            ?? throw new InvalidOperationException($"Product {productId} not found.");
+
+        product.Stock -= quantity;
+        unitOfWork.Orders.Add(new Order { ProductId = productId, Quantity = quantity });
+
+        // Both changes (stock update + new order) are saved in ONE database transaction
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+}
+```
+
+> [!NOTE]
+> A single `SaveChanges()` call is **already transactional** in EF Core: if any statement fails, nothing is saved. You only need an explicit transaction (`context.Database.BeginTransactionAsync()` ... `CommitAsync()`) when one business operation has to call `SaveChanges()` **multiple times**.
+
+> [!WARNING]
+> Don't call `SaveChanges()` inside repository methods. If `Add` saved immediately, the `OrderService` above could save the order but fail on the stock update, and the data would end up inconsistent. Saving is the **Unit of Work's** job.
+
+> [!WARNING]
+> Don't dispose the `DbContext` in your `UnitOfWork`. When `DbContext` comes from the DI container, the **container owns it** and disposes it at the end of the request (more on that in the DI section).
+
+## Isn't `DbContext` Already a Unit of Work?
+
+Yes. According to the EF Core docs, _"a DbContext instance is designed to be used for a single unit-of-work"_, and every `DbSet<T>` already behaves like a repository. So why wrap it?
+
+| Pros of wrapping EF Core                                                                       | Cons of wrapping EF Core                                                                      |
+| ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| Business Layer doesn't depend on EF Core (cleaner 3-layered architecture)                      | More code and boilerplate                                                                     |
+| Easy to mock `IUnitOfWork` / `IRepository<T>` in unit tests                                    | A generic repository often hides useful EF Core features (`Include`, projections, ...)        |
+| One consistent place for data access (queries and `Include`s live in the DAL, not in services) | Returning `IQueryable<T>` from repositories "leaks" EF Core back out, which defeats the point |
+
+> [!NOTE]
+> There's no single correct answer. Many real projects use `DbContext` directly. In this seminar, we use **Repository + Unit of Work** to keep the layers clearly separated.
+
+> [!TIP]
+> [MS Learn: Implementing the infrastructure persistence layer (Repository & Unit of Work)](https://learn.microsoft.com/en-us/dotnet/architecture/microservices/microservice-ddd-cqrs-patterns/infrastructure-persistence-layer-design)
+
+# App Settings
+
+Hardcoding a connection string in `OnConfiguring` (as we did last time) works on your machine only. **Configuration** lets the same build run against a different database, log level or API key depending on where it runs.
+
+## `appsettings.json`
+
+```json
+{
+  "ConnectionStrings": {
+    "Default": "Server=(localdb)\\mssqllocaldb;Database=MyApp;Trusted_Connection=True;"
+  },
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information"
+    }
+  },
+  "Smtp": {
+    "Host": "localhost",
+    "Port": 25
+  }
+}
+```
+
+Values are read through `IConfiguration`, using `:` to go deeper into the hierarchy:
+
+```csharp
+var connectionString = builder.Configuration.GetConnectionString("Default");
+var smtpHost = builder.Configuration["Smtp:Host"];
+var smtpPort = builder.Configuration.GetValue<int>("Smtp:Port");
+```
+
+## Default / Development / Production
+
+- `appsettings.json` contains the **default** values shared by all environments
+- `appsettings.{Environment}.json` (e.g. `appsettings.Development.json`, `appsettings.Production.json`) **overrides** only the values that differ
+- The environment is selected with the `ASPNETCORE_ENVIRONMENT` environment variable
+  - Locally, it's typically set to `Development` by `Properties/launchSettings.json`
+  - **If it's not set at all, the app runs as `Production`**
+
+You can branch on the environment in code, e.g. to only migrate and seed the database during development:
+
+```csharp
+if (app.Environment.IsDevelopment())
+{
+    using var scope = app.Services.CreateScope();
+    var context = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+    await context.Database.MigrateAsync(); // also triggers UseSeeding / UseAsyncSeeding
+}
+```
+
+> [!TIP]
+> [MS Learn: Use multiple environments in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/environments)
+
+## Bindings from Other Sources
+
+`appsettings.json` is only one of several **configuration providers**. `WebApplication.CreateBuilder` registers them in this order, and **later sources override earlier ones**:
+
+1. `appsettings.json`
+2. `appsettings.{Environment}.json`
+3. **User secrets** (only when the environment is `Development`)
+4. **Environment variables**
+5. **Command-line arguments**
+
+### Environment Variables
+
+Use a **double underscore** `__` instead of `:` (because `:` isn't allowed in environment variable names on every OS):
+
+```bash
+# Linux / macOS
+export ConnectionStrings__Default="Server=prod-db;Database=MyApp;..."
+
+# Windows (PowerShell)
+$env:ConnectionStrings__Default = "Server=prod-db;Database=MyApp;..."
+```
+
+This is the usual way to configure apps running in **Docker**, **Kubernetes** or cloud services, where you don't want to rebuild the image just to change a value.
+
+### Command Line
+
+Command-line arguments have the **highest priority**, which makes them handy for quick one-off overrides:
+
+```bash
+dotnet run --Smtp:Port=2525
+dotnet run --environment Staging
+```
+
+### Secret Management (User Secrets)
+
+**Never commit passwords, API keys or production connection strings** to your Git repository. Even if you delete them in a later commit, they stay in the Git history.
+
+For local development, use the **Secret Manager**:
+
+```bash
+dotnet user-secrets init                                   # adds <UserSecretsId> to the .csproj
+dotnet user-secrets set "ConnectionStrings:Default" "Server=...;Password=MySecret"
+dotnet user-secrets list
+```
+
+- Secrets are stored **outside the project folder**, so they can't be committed by accident
+  - Windows: `%APPDATA%\Microsoft\UserSecrets\<UserSecretsId>\secrets.json`
+  - Linux/macOS: `~/.microsoft/usersecrets/<UserSecretsId>/secrets.json`
+- In Visual Studio: right-click the project → **Manage User Secrets**
+- The app reads them through `IConfiguration` exactly like any other value, so no code changes are needed
+
+> [!WARNING]
+> User secrets are **not encrypted** and are meant **only for development**. They're loaded only in the `Development` environment. In production, use environment variables or a dedicated secret store such as **Azure Key Vault**.
+
+> [!TIP]
+> [MS Learn: Safe storage of app secrets in development](https://learn.microsoft.com/en-us/aspnet/core/security/app-secrets)
+
+## Options Pattern
+
+Instead of reading values with magic strings (`"Smtp:Host"`) all over the code, bind a whole section to a **strongly-typed class**:
+
+```csharp
+public class SmtpOptions
+{
+    public const string SectionName = "Smtp";
+
+    [Required]
+    public string Host { get; set; } = string.Empty;
+
+    [Range(1, 65535)]
+    public int Port { get; set; }
+}
+```
+
+```csharp
+builder.Services
+    .AddOptions<SmtpOptions>()
+    .Bind(builder.Configuration.GetSection(SmtpOptions.SectionName))
+    .ValidateDataAnnotations()
+    .ValidateOnStart(); // fail on startup, not on the first email sent
+```
+
+Then inject `IOptions<SmtpOptions>` wherever the values are needed and read them through `.Value`, with no strings and full IntelliSense:
+
+```csharp
+public class EmailService(IOptions<SmtpOptions> options) : IEmailService
+{
+    private readonly SmtpOptions _smtp = options.Value;
+
+    public async Task SendAsync(string to, string subject, string body, CancellationToken cancellationToken)
+    {
+        // Host and Port come from the "Smtp" section of appsettings.json
+        // (or from any provider that overrides it, e.g. env var Smtp__Port)
+        using var client = new SmtpClient(_smtp.Host, _smtp.Port);
+        using var message = new MailMessage("noreply@myapp.com", to, subject, body);
+
+        await client.SendMailAsync(message, cancellationToken);
+    }
+}
+```
+
+```csharp
+builder.Services.AddScoped<IEmailService, EmailService>();
+```
+
+If you run the app with `dotnet run --Smtp:Port=2525`, `EmailService` sends to port `2525` without any code change. And if `Smtp:Host` is missing, the app **fails on startup** thanks to `ValidateOnStart()`.
+
+| Interface             | Lifetime  | Picks up changes in `appsettings.json` at runtime? |
+| --------------------- | --------- | -------------------------------------------------- |
+| `IOptions<T>`         | Singleton | No, values are read once                           |
+| `IOptionsSnapshot<T>` | Scoped    | Yes, re-read for every request                     |
+| `IOptionsMonitor<T>`  | Singleton | Yes, with change notifications (`OnChange`)        |
+
+> [!TIP]
+> [MS Learn: Options pattern in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/configuration/options)
+
+# Dependency Injection (DI)
+
+## What Is a Dependency?
+
+A **dependency** is anything a class needs in order to do its job. For example, an `OrderService` needs something that can load products and save orders (the Unit of Work). Without it, `OrderService` can't work.
+
+There are two ways a class can get its dependencies:
+
+1. **It creates them itself.** The class decides which concrete implementation to use and how to build it, including all of _that_ implementation's own dependencies
+2. **Someone else gives them to it.** The class only says _what_ it needs (usually an interface), and doesn't care how it's created
+
+**Dependency Injection** is option 2: a class **doesn't create its dependencies, it receives them from the outside**.
+
+## Why Bother?
+
+When a class creates its own dependencies, it is **tightly coupled** to them:
+
+- **Hard to test**: you can't replace the real database with a fake one in a unit test, because the class always creates the real one
+- **Hard to change**: switching an implementation (e.g. a different email provider) means editing every class that creates it
+- **Hidden requirements**: you can't tell what a class needs without reading its whole body
+
+With DI, dependencies are **explicit** (visible in the constructor), **replaceable** (any implementation of the interface works), and **created in one place**.
+
+## Inversion of Control and the DI Container
+
+DI is a form of **Inversion of Control (IoC)**: the class no longer controls the creation of its dependencies. That control moves to a central component, the **DI container** (also called an IoC container), which:
+
+1. Knows **which implementation** to use for each interface (you **register** services)
+2. **Creates** the objects, including their dependencies, recursively (it **resolves** services)
+3. Decides **how long** each object lives and **disposes** it when it's no longer needed (service **lifetimes**)
+
+```plain
+             registers                        asks for IOrderService
+Program.cs ────────────► DI Container ◄──────────────────────────── Controller
+                              │
+                              │ creates the whole chain:
+                              ▼
+         OrderService ──needs──► IUnitOfWork ──needs──► AppDbContext
+```
+
+## Dependency Injection in ASP.NET Core
+
+ASP.NET Core has a DI container built in. Dependencies are usually injected through the **constructor**:
+
+```csharp
+// ❌ Creates its own dependency: tightly coupled, hard to test, hard to swap
+public class OrderService
+{
+    private readonly UnitOfWork _unitOfWork = new UnitOfWork(new AppDbContext());
+}
+
+// ✅ Receives an abstraction, the container provides the implementation
+public class OrderService(IUnitOfWork unitOfWork) { }
+```
+
+Services are **registered** in `Program.cs` and **resolved** automatically, e.g. when a controller that needs `IOrderService` is created:
+
+```csharp
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddScoped<IOrderService, OrderService>();
+```
+
+## Lifetimes
+
+| Lifetime      | A new instance is created...                                    | Typical usage                                                   |
+| ------------- | --------------------------------------------------------------- | --------------------------------------------------------------- |
+| **Transient** | **every time** it's requested                                   | Lightweight, stateless services (mappers, validators)           |
+| **Scoped**    | **once per scope**. In ASP.NET Core, a scope = one HTTP request | `DbContext`, `IUnitOfWork`, repositories, business services     |
+| **Singleton** | **once** for the whole lifetime of the application              | Caches, configuration, `HttpClient` handlers, stateless helpers |
+
+```csharp
+builder.Services.AddTransient<IPriceCalculator, PriceCalculator>();
+builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
+builder.Services.AddSingleton<IExchangeRateCache, ExchangeRateCache>();
+```
+
+> [!IMPORTANT]
+> `AddDbContext` registers the `DbContext` as **Scoped** by default. Everything that depends on it (repositories, `UnitOfWork`, services using them) should be **Scoped** too. That's how all repositories within one request share **the same `DbContext`**, which is exactly what makes the Unit of Work work.
+
+## Captive Dependencies
+
+A service must never depend on a service with a **shorter** lifetime. For example, a **Singleton** that receives a **Scoped** `DbContext` would hold on to that one `DbContext` forever. It would be shared across all requests and threads, and `DbContext` **isn't thread-safe**.
+
+```csharp
+// ❌ Singleton capturing a Scoped dependency
+builder.Services.AddSingleton<IReportService, ReportService>(); // ReportService(AppDbContext context)
+```
+
+In the `Development` environment, ASP.NET Core **validates scopes** and fails fast with an error like _"Cannot consume scoped service 'AppDbContext' from singleton 'IReportService'"_.
+
+If a Singleton (or a background service) really needs a Scoped service, create a scope explicitly:
+
+```csharp
+public class ReportService(IServiceScopeFactory scopeFactory) : IReportService
+{
+    public async Task GenerateAsync()
+    {
+        using var scope = scopeFactory.CreateScope();
+        var unitOfWork = scope.ServiceProvider.GetRequiredService<IUnitOfWork>();
+        // ...
+    }
+}
+```
+
+## Organizing Registrations per Layer
+
+To keep `Program.cs` clean (and to respect the layers), each layer can expose its own extension method:
+
+```csharp
+// MyApp.DAL
+public static class DependencyInjection
+{
+    public static IServiceCollection AddDataAccessLayer(
+        this IServiceCollection services, IConfiguration configuration)
+    {
+        services.AddDbContext<AppDbContext>(options =>
+            options.UseSqlServer(configuration.GetConnectionString("Default")));
+        services.AddScoped<IUnitOfWork, UnitOfWork>();
+        return services;
+    }
+}
+```
+
+```csharp
+// MyApp.Api / Program.cs
+builder.Services
+    .AddDataAccessLayer(builder.Configuration)
+    .AddBusinessLayer();
+```
+
+> [!TIP]
+> [MS Learn: Dependency injection in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/dependency-injection) · [Service lifetimes](https://learn.microsoft.com/en-us/dotnet/core/extensions/dependency-injection#service-lifetimes)
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-03](https://gitlab.fi.muni.cz/pv179) {/* TODO: replace with the Seminar-03 repository link */}
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Team assembly and repository deadline (today, 5.10.2026) checked
+
+✓ Repository and Unit of Work patterns implemented on top of EF Core
+
+✓ App configuration: environments, environment variables, command line, user secrets and the Options pattern
+
+✓ DI lifetimes (Transient, Scoped, Singleton) and captive dependencies explained
+
+✓ Today's assignment downloaded
+
+> [!IMPORTANT]
+> Any questions?
