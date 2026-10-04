@@ -1,6 +1,6 @@
 ---
 title: "Unit of Work, App Settings, and Dependency Injection"
-description: "Team assembly and repository deadline, implementing the Repository and Unit of Work patterns on top of EF Core, configuring the application with appsettings, environments, environment variables, the command line and user secrets, and registering services with the correct dependency injection lifetimes."
+description: "Team check-in, implementing the Repository and Unit of Work patterns on top of EF Core, configuring the application with appsettings, environments, environment variables, the command line and user secrets, and registering services with the correct dependency injection lifetimes."
 order: 3
 recommendedStudyFrom: "2026-10-05"
 recommendedStudyTo: "2026-10-11"
@@ -16,26 +16,18 @@ tags:
 
 # Agenda
 
-1. Deadline: Teams & Repositories
+1. Check-in
 2. Unit of Work (UoW)
 3. App Settings
 4. Dependency Injection (DI)
 5. Today's Assignment
 
-# Deadline: Teams & Repositories
+# Check-in
 
-> [!IMPORTANT]
-> The deadline for **team assembly** and **repository setup** is **today, 5.10.2026** (the original 28.9.2026 deadline, shifted by one week because of the public holiday).
+We'll go through the teams in the Excel sheet one by one:
 
-Before the end of the day, make sure your team has done all of the following:
-
-- [ ] Filled in the **team members** in the **Group 4 Excel sheet** in **Milestone 1** of the [interactive syllabus](https://is.muni.cz/auth/el/fi/podzim2026/PV179/index.qwarp?prejit=9039503)
-- [ ] Filled in the **chosen topic**. A **custom topic** has to be **approved by us** first, so if you haven't asked yet, ask today
-- [ ] Created a repository on **GitLab** and put its **link** in the Excel sheet
-- [ ] **Added both of us** to the repository. We assign ourselves only in the Excel sheet, so without access we can't review anything
-
-> [!WARNING]
-> If your team still has fewer members than required, or you can't find a team at all, **tell us today** on Discord. Don't wait until the first milestone review.
+- **Attendance**: at least **one member of each team** should be here today
+- **Team issues**: if your team is still missing a member, or something else isn't working out, let us know now so we can sort it out together
 
 # Unit of Work (UoW)
 
@@ -141,6 +133,21 @@ public class OrderService(IUnitOfWork unitOfWork)
 > [!NOTE]
 > A single `SaveChanges()` call is **already transactional** in EF Core: if any statement fails, nothing is saved. You only need an explicit transaction (`context.Database.BeginTransactionAsync()` ... `CommitAsync()`) when one business operation has to call `SaveChanges()` **multiple times**.
 
+A typical case is a **database-generated key** (e.g. `Id` as `IDENTITY`). The database assigns it only when `SaveChanges()` runs, so if you need the new `Id` before the rest of the operation can continue, you have to save twice and wrap both saves in a transaction:
+
+```csharp
+await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+var order = new Order { ProductId = productId, Quantity = quantity };
+context.Orders.Add(order);
+await context.SaveChangesAsync(cancellationToken); // order.Id is generated here
+
+context.AuditLogs.Add(new AuditLog { Message = $"Order {order.Id} placed" });
+await context.SaveChangesAsync(cancellationToken);
+
+await transaction.CommitAsync(cancellationToken); // without Commit, both saves are rolled back
+```
+
 > [!WARNING]
 > Don't call `SaveChanges()` inside repository methods. If `Add` saved immediately, the `OrderService` above could save the order but fail on the stock update, and the data would end up inconsistent. Saving is the **Unit of Work's** job.
 
@@ -165,7 +172,7 @@ Yes. According to the EF Core docs, _"a DbContext instance is designed to be use
 
 # App Settings
 
-Hardcoding a connection string in `OnConfiguring` (as we did last time) works on your machine only. **Configuration** lets the same build run against a different database, log level or API key depending on where it runs.
+Hardcoding a connection string in `OnConfiguring` (as we did last time) ties the build to one specific database: pointing the app anywhere else means changing the code and rebuilding. **Configuration** lets the same build run against a different database, log level or API key depending on where it runs.
 
 ## `appsettings.json`
 
@@ -194,6 +201,17 @@ var smtpHost = builder.Configuration["Smtp:Host"];
 var smtpPort = builder.Configuration.GetValue<int>("Smtp:Port");
 ```
 
+`GetSection()` does the same thing step by step, and can be chained:
+
+```csharp
+var smtpSection = builder.Configuration.GetSection("Smtp");
+var smtpHost = smtpSection["Host"];
+
+var defaultLogLevel = builder.Configuration
+    .GetSection("Logging")
+    .GetSection("LogLevel")["Default"];
+```
+
 ## Default / Development / Production
 
 - `appsettings.json` contains the **default** values shared by all environments
@@ -201,6 +219,31 @@ var smtpPort = builder.Configuration.GetValue<int>("Smtp:Port");
 - The environment is selected with the `ASPNETCORE_ENVIRONMENT` environment variable
   - Locally, it's typically set to `Development` by `Properties/launchSettings.json`
   - **If it's not set at all, the app runs as `Production`**
+
+`launchSettings.json` can contain **multiple profiles**, e.g. to run the app locally against different environments:
+
+```json
+{
+  "profiles": {
+    "Development": {
+      "commandName": "Project",
+      "applicationUrl": "https://localhost:5001",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "Staging": {
+      "commandName": "Project",
+      "applicationUrl": "https://localhost:5001",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Staging"
+      }
+    }
+  }
+}
+```
+
+Pick the profile in the run/debug dropdown of your IDE, or with `dotnet run --launch-profile Staging`. When no profile is specified, `dotnet run` uses the first one.
 
 You can branch on the environment in code, e.g. to only migrate and seed the database during development:
 
@@ -242,11 +285,11 @@ This is the usual way to configure apps running in **Docker**, **Kubernetes** or
 
 ### Command Line
 
-Command-line arguments have the **highest priority**, which makes them handy for quick one-off overrides:
+Command-line arguments have the **highest priority**, which makes them handy for quick one-off overrides.:
 
 ```bash
-dotnet run --Smtp:Port=2525
-dotnet run --environment Staging
+dotnet run -- --Smtp:Port=2525
+dotnet run -- --environment Staging
 ```
 
 ### Secret Management (User Secrets)
@@ -321,7 +364,7 @@ public class EmailService(IOptions<SmtpOptions> options) : IEmailService
 builder.Services.AddScoped<IEmailService, EmailService>();
 ```
 
-If you run the app with `dotnet run --Smtp:Port=2525`, `EmailService` sends to port `2525` without any code change. And if `Smtp:Host` is missing, the app **fails on startup** thanks to `ValidateOnStart()`.
+If you run the app with `dotnet run -- --Smtp:Port=2525`, `EmailService` sends to port `2525` without any code change. And if `Smtp:Host` is missing, the app **fails on startup** thanks to `ValidateOnStart()`.
 
 | Interface             | Lifetime  | Picks up changes in `appsettings.json` at runtime? |
 | --------------------- | --------- | -------------------------------------------------- |
@@ -394,6 +437,32 @@ builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 builder.Services.AddScoped<IOrderService, OrderService>();
 ```
 
+By default, the container creates a service by calling its constructor and resolving every parameter from its registrations. That doesn't work when a constructor needs a value the container doesn't know about, e.g. an API key that first has to be loaded from external storage:
+
+```csharp
+public class PaymentGatewayClient(string apiKey) : IPaymentGatewayClient
+{
+    // The container has no registration for a plain string, so it can't create this class on its own
+}
+```
+
+In that case, register the service with a **factory**: a lambda that tells the container how to build it. It goes in `Program.cs` (or the layer's registration method, see below), next to the other registrations:
+
+```csharp
+builder.Services.AddSingleton<ISecretStore, SecretStore>();
+
+// The lambda receives the container (serviceProvider), so it can resolve other services
+builder.Services.AddSingleton<IPaymentGatewayClient>(serviceProvider =>
+{
+    var secretStore = serviceProvider.GetRequiredService<ISecretStore>();
+    var apiKey = secretStore.GetSecret("PaymentGateway:ApiKey");
+
+    return new PaymentGatewayClient(apiKey);
+});
+```
+
+Nothing runs at registration time. The container calls the lambda the first time some class asks for `IPaymentGatewayClient`, e.g. `OrderService(IPaymentGatewayClient paymentGateway)`. Because it's a Singleton, the lambda runs only once and every later request gets the same instance. Consumers don't know a factory was used, they just ask for the interface as usual.
+
 ## Lifetimes
 
 | Lifetime      | A new instance is created...                                    | Typical usage                                                   |
@@ -413,7 +482,9 @@ builder.Services.AddSingleton<IExchangeRateCache, ExchangeRateCache>();
 
 ## Captive Dependencies
 
-A service must never depend on a service with a **shorter** lifetime. For example, a **Singleton** that receives a **Scoped** `DbContext` would hold on to that one `DbContext` forever. It would be shared across all requests and threads, and `DbContext` **isn't thread-safe**.
+A service keeps its dependencies for as long as it lives itself. The dangerous case is a **Singleton** depending on a **Scoped** service: a Singleton that receives a Scoped `DbContext` would hold on to that one `DbContext` forever. It would be shared across all requests and threads, and `DbContext` **isn't thread-safe**.
+
+Depending on a **Transient** service is usually fine: a Scoped service simply keeps its Transient dependency for the rest of the request. Inside a Singleton, a Transient dependency effectively becomes a Singleton too, so it must be stateless and thread-safe.
 
 ```csharp
 // ❌ Singleton capturing a Scoped dependency
@@ -467,7 +538,7 @@ builder.Services
 
 # Today's Assignment
 
-- You can download today's assignment here: [Seminar-03](https://gitlab.fi.muni.cz/pv179) {/* TODO: replace with the Seminar-03 repository link */}
+- You can download today's assignment here: [Seminar-03](https://gitlab.fi.muni.cz/pv179/seminar-03-2026-multiple-migration-repositor-unit-of-work)
 - Follow the instructions in the assignment
 - I'll go around and check how you're doing
 
@@ -476,7 +547,7 @@ builder.Services
 
 # Summary
 
-✓ Team assembly and repository deadline (today, 5.10.2026) checked
+✓ Attendance and team issues checked
 
 ✓ Repository and Unit of Work patterns implemented on top of EF Core
 
