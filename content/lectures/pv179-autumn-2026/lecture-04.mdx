@@ -1,13 +1,366 @@
 ---
-title: "Middleware"
-description: "Exploring middleware in ASP.NET, understanding request/response pipeline, and building custom middleware components for cross-cutting concerns."
+title: "Middleware and Swagger"
+description: "Understanding the middleware pattern and the ASP.NET Core request pipeline, writing and registering custom middleware in the correct order, and documenting and testing the API with Swagger (OpenAPI)."
 order: 4
 recommendedStudyFrom: "2026-10-12"
 recommendedStudyTo: "2026-10-18"
-availableFrom: "2026-10-12"
+availableFrom: "2026-10-05"
 tags:
   - middleware
+  - request-pipeline
+  - swagger
+  - openapi
 ---
 
+# Agenda
+
+1. Middleware
+2. Middleware in ASP.NET Core
+3. Swagger
+4. Today's Assignment
+
+# Middleware
+
+**Middleware** is a piece of code that sits **between the incoming request and your application logic**. Each middleware gets the request, can do something with it, and then decides whether to **pass it on** to the next middleware or to **answer it right away**.
+
+Middleware components are chained into a **pipeline**. A request travels through the pipeline in one direction, and the response travels back through the same components in the **opposite direction**:
+
+```plain
+Request ──► Middleware A ──► Middleware B ──► Middleware C ──► Endpoint
+                                                                  │
+Response ◄── Middleware A ◄── Middleware B ◄── Middleware C ◄─────┘
+```
+
+Every middleware can therefore:
+
+1. Run code **before** the next middleware (e.g. log the request, check a token)
+2. Call the **next** middleware, or **not call it** and end the request early (**short-circuit**, e.g. return `401 Unauthorized`)
+3. Run code **after** the next middleware has finished (e.g. measure the elapsed time, modify the response)
+
+## The Pattern
+
+The idea isn't specific to .NET. It's a variation of the **Chain of Responsibility** design pattern, and you'll find the same concept in many frameworks:
+
+- **Express.js** (Node.js): `app.use((req, res, next) => { ... })`
+- **Django** (Python): `MIDDLEWARE` setting
+
+## Why Middleware?
+
+Middleware is the right place for **cross-cutting concerns**: things that should happen for **(almost) every request**, regardless of which controller or endpoint handles it:
+
+- Logging and request timing
+- Exception handling (turning exceptions into a proper error response)
+- Authentication and authorization
+- HTTPS redirection, CORS, response compression, caching
+- Adding headers (e.g. a correlation ID) to every response
+
+Without middleware, you'd have to repeat this code in **every** controller action.
+
+# Middleware in ASP.NET Core
+
+In ASP.NET Core, the whole request processing **is** a middleware pipeline. Even routing, authentication and the endpoints themselves are middleware. You build the pipeline in `Program.cs` with `app.Use...()` calls, and **the order of these calls is the order of the pipeline**.
+
+## Built-in Middleware Order
+
+The recommended order of the built-in middleware is:
+
+```plain
+Request
+   │
+   ▼
+ExceptionHandler      ◄── first, so it catches exceptions from everything below
+HSTS
+HttpsRedirection
+Static Files          ◄── can short-circuit (returns the file, no need to go further)
+Routing
+CORS
+Authentication        ◄── who are you?
+Authorization         ◄── are you allowed to do this?
+Custom middleware     ◄── your own middleware usually goes here
+   │
+   ▼
+Endpoint (controller action)
+```
+
+```csharp
+var app = builder.Build();
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();
+    app.UseSwaggerUI();
+}
+else
+{
+    app.UseExceptionHandler("/error");
+    app.UseHsts();
+}
+
+app.UseHttpsRedirection();
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.UseMiddleware<RequestTimingMiddleware>();
+
+app.MapControllers();
+
+app.Run();
+```
+
+> [!IMPORTANT]
+> **Order matters.** A middleware only sees what happens **after** it in the pipeline. If the exception handler is registered last, it can't catch exceptions thrown by the middleware before it. If an authentication check is registered after the endpoint, the endpoint already ran.
+
+> [!TIP]
+> [MS Learn: ASP.NET Core Middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/)
+
+## Registration Options
+
+### Inline Middleware: `Use`, `Run`, `Map`
+
+For small, one-off logic, you can write middleware directly in `Program.cs` as a lambda:
+
+```csharp
+// Use: runs code and calls the next middleware
+app.Use(async (context, next) =>
+{
+    context.Response.Headers["X-Powered-By"] = "PV179";
+    await next(context);
+});
+
+// Map: creates a separate branch of the pipeline for a path
+app.Map("/health", healthApp =>
+{
+    // Run: a terminal middleware, it never calls next
+    healthApp.Run(async context => await context.Response.WriteAsync("Healthy"));
+});
+```
+
+- **`Use`**: the general form, receives `next`
+- **`Run`**: **terminal** middleware, there is no `next`. Anything registered after it in the same branch never runs
+- **`Map`** / **`MapWhen`**: split the pipeline into a **branch** based on the path (or any condition). The branch doesn't rejoin the main pipeline
+- **`UseWhen`**: like `MapWhen`, but the branch **rejoins** the main pipeline afterwards
+
+### Convention-Based Middleware Class
+
+For anything bigger, create a class. ASP.NET Core recognizes a middleware class by **convention**, not by an interface:
+
+- a public constructor taking a **`RequestDelegate`** (the next middleware in the pipeline)
+- a public method **`Invoke`** or **`InvokeAsync`** taking **`HttpContext`** and returning `Task`
+
+```csharp
+public class MaintenanceModeMiddleware(RequestDelegate next, IOptions<MaintenanceOptions> options)
+{
+    public async Task InvokeAsync(HttpContext context)
+    {
+        if (options.Value.Enabled)
+        {
+            // Short-circuit: next is never called, the request never reaches the controller
+            context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+            await context.Response.WriteAsync("The application is under maintenance.");
+            return;
+        }
+
+        await next(context);
+    }
+}
+```
+
+```csharp
+app.UseMiddleware<MaintenanceModeMiddleware>();
+```
+
+It's common to add an extension method, so `Program.cs` reads the same way as the built-in middleware:
+
+```csharp
+public static class MaintenanceModeMiddlewareExtensions
+{
+    public static IApplicationBuilder UseMaintenanceMode(this IApplicationBuilder app)
+        => app.UseMiddleware<MaintenanceModeMiddleware>();
+}
+
+app.UseMaintenanceMode();
+```
+
 > [!WARNING]
-> Work in progress.
+> A convention-based middleware is created **only once**, when the app starts, so it effectively behaves like a **Singleton**. Remember **captive dependencies** from the last lecture: never inject a **Scoped** service (e.g. `AppDbContext`, `IUnitOfWork`) into its constructor. Add it as a parameter of `InvokeAsync` instead, and it will be resolved **per request**:
+>
+> ```csharp
+> public async Task InvokeAsync(HttpContext context, IUnitOfWork unitOfWork) { ... }
+> ```
+
+### Factory-Based Middleware (`IMiddleware`)
+
+Alternatively, implement the `IMiddleware` interface. Such a middleware is **resolved from the DI container on every request**, so you register it yourself and choose its lifetime:
+
+```csharp
+public class AuditMiddleware(IUnitOfWork unitOfWork) : IMiddleware
+{
+    public async Task InvokeAsync(HttpContext context, RequestDelegate next)
+    {
+        await next(context);
+        // ... save an audit record using unitOfWork
+    }
+}
+```
+
+```csharp
+builder.Services.AddScoped<AuditMiddleware>(); // required, otherwise UseMiddleware fails
+// ...
+app.UseMiddleware<AuditMiddleware>();
+```
+
+| Approach                      | Instance created              | Scoped dependencies via   | Registration in DI |
+| ----------------------------- | ----------------------------- | ------------------------- | ------------------ |
+| Inline (`Use`, `Run`, `Map`)  | n/a (a lambda)                | `context.RequestServices` | No                 |
+| Convention-based class        | **once** at startup           | `InvokeAsync` parameters  | No                 |
+| Factory-based (`IMiddleware`) | per request (by its lifetime) | constructor               | **Yes**            |
+
+> [!TIP]
+> [MS Learn: Write custom ASP.NET Core middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/write) · [Factory-based middleware](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/middleware/extensibility)
+
+## Working with `HttpContext`
+
+`HttpContext` holds everything about the current request and its response:
+
+```csharp
+var method = context.Request.Method;                    // "GET"
+var path = context.Request.Path;                        // "/api/products"
+var header = context.Request.Headers["X-Api-Version"];  // request header
+var query = context.Request.Query["page"];              // query string value
+
+context.Response.StatusCode = StatusCodes.Status404NotFound;
+context.Response.ContentType = "application/json";
+context.Response.Headers["X-Correlation-Id"] = Guid.NewGuid().ToString();
+```
+
+> [!WARNING]
+> Once the response has **started** (the first bytes were sent to the client), you **can't** change its status code or headers anymore. Doing so throws an exception. In code that runs **after** `next`, check `context.Response.HasStarted`, or register a callback with `context.Response.OnStarting(...)` that runs right before the headers are sent.
+
+> [!WARNING]
+> If you replace `context.Response.Body` (e.g. with a `MemoryStream` to read or modify the response), always **restore the original stream** afterwards, ideally in a `finally` block. Otherwise the client receives nothing.
+
+## Logging in Middleware
+
+Middleware is a typical place for logging. Inject `ILogger<T>` and prefer **message templates** over string interpolation:
+
+```csharp
+// ❌ The message is built as a single string, the values are lost for structured logging
+logger.LogInformation($"Request {context.Request.Method} {context.Request.Path}");
+
+// ✅ Method and Path are stored as separate, searchable properties
+logger.LogInformation("Request {Method} {Path}", context.Request.Method, context.Request.Path);
+```
+
+With a structured logging tool (e.g. Seq, Application Insights, Elastic), you can then filter for e.g. _"all requests where `Path` = `/api/orders`"_.
+
+## Middleware vs Filters
+
+ASP.NET Core MVC also has **filters** (action filters, exception filters, ...), which look similar. The difference is **where** they run:
+
+- **Middleware** runs for **every request** in the pipeline and only knows about `HttpContext` (path, headers, body)
+- **Filters** run **inside MVC**, only for requests that reached a controller, and know about the **action**, its arguments and the result
+
+> [!NOTE]
+> Rule of thumb: if it concerns HTTP in general (logging, headers, timing), use **middleware**. If it needs to know about the specific controller action or its model (e.g. validating action arguments), use a **filter**.
+
+<Spoiler label="Quiz: where should the exception handling middleware go, and why? (Double-click to reveal)">
+
+**At the very beginning of the pipeline.** A middleware can only catch exceptions thrown by components registered **after** it (it wraps `await next(context)` in `try`/`catch`). If it's first, it catches exceptions from every other middleware and from the endpoint itself.
+
+</Spoiler>
+
+# Swagger
+
+**OpenAPI** is a standard, machine-readable description of a REST API (endpoints, parameters, request/response models, status codes), usually as a JSON document. **Swagger** is a set of tools around it, most notably **Swagger UI**: an interactive web page generated from that document, where you can browse the API and **send requests directly from the browser**.
+
+In .NET, the document is typically generated by **Swashbuckle**:
+
+```bash
+dotnet add package Swashbuckle.AspNetCore
+```
+
+```csharp
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen();
+
+// ...
+
+if (app.Environment.IsDevelopment())
+{
+    app.UseSwagger();   // serves the OpenAPI JSON at /swagger/v1/swagger.json
+    app.UseSwaggerUI(); // serves the interactive UI at /swagger
+}
+```
+
+> [!NOTE]
+> Since .NET 9, the project templates use the built-in `Microsoft.AspNetCore.OpenApi` package instead (`builder.Services.AddOpenApi()` + `app.MapOpenApi()`), which generates only the OpenAPI document, without a UI. You can add a UI on top of it, e.g. Swagger UI or **Scalar**. In this seminar, we use **Swashbuckle**, as in the assignment.
+
+## Describing Responses
+
+By default, Swagger only knows about the success response. Use attributes to document the others, so the API consumers (and your teammates) know what to expect:
+
+```csharp
+[HttpGet("{id:int}")]
+[ProducesResponseType<ProductDto>(StatusCodes.Status200OK)]
+[ProducesResponseType(StatusCodes.Status404NotFound)]
+public async Task<ActionResult<ProductDto>> GetById(int id, CancellationToken cancellationToken)
+{
+    // ...
+}
+```
+
+You can also show your XML documentation comments (`/// <summary>`) in Swagger UI: enable `<GenerateDocumentationFile>true</GenerateDocumentationFile>` in the `.csproj` and call `IncludeXmlComments(...)` in `AddSwaggerGen`.
+
+## Authorization in Swagger UI
+
+When the API requires a token, Swagger UI needs to know **how** to send it. You do that by adding a **security definition** in `AddSwaggerGen`. Swagger UI then shows an **Authorize** button (with a lock), and after you enter the token, it adds it to the `Authorization` header of every request:
+
+```csharp
+builder.Services.AddSwaggerGen(c =>
+{
+    c.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
+    {
+        Description = "Enter the token as follows: Bearer YourToken",
+        Name = "Authorization",
+        In = ParameterLocation.Header,
+        Type = SecuritySchemeType.ApiKey,
+        Scheme = "Bearer",
+    });
+
+    // + AddSecurityRequirement(...) to apply the definition to the endpoints (see the assignment)
+});
+```
+
+> [!NOTE]
+> The exact syntax of `AddSecurityRequirement` differs between Swashbuckle (and `Microsoft.OpenApi`) versions. If the snippet from the assignment doesn't compile, check the version of the package in your project.
+
+> [!TIP]
+> Swagger UI is great for quick manual testing. For more complex scenarios (saved request collections, environments, inspecting all headers), use a dedicated client such as **Postman**, **Bruno**, or the `.http` files supported by Visual Studio and Rider.
+
+> [!TIP]
+> [MS Learn: Get started with Swashbuckle and ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/tutorials/getting-started-with-swashbuckle) · [OpenAPI support in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/openapi/overview)
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-04](https://gitlab.fi.muni.cz/pv179/seminar-04-2026-middleware)
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Middleware pattern and the request pipeline explained
+
+✓ Custom middleware written and registered in the correct order (inline, convention-based, `IMiddleware`)
+
+✓ API documented and tested with Swagger, including authorization
+
+✓ Today's assignment downloaded
+
+> [!NOTE]
+> **Next time:** Business Layer, Facades, DTOs, Services, and refactoring the controllers.
+
+> [!IMPORTANT]
+> Any questions?
