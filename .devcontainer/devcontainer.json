@@ -38,6 +38,10 @@
       }
     }
   },
+  "mounts": [
+    "source=labs-hub-gh-config,target=/home/node/.config/gh,type=volume",
+    "source=labs-hub-copilot-config,target=/home/node/.copilot,type=volume"
+  ],
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
   "postStartCommand": "corepack prepare pnpm@latest --activate && pnpm install",
