@@ -185,6 +185,9 @@ public class ProductService(IUnitOfWork unitOfWork) : IProductService
 > [!NOTE]
 > A service **can** save its own changes. For a simple use case that touches one area (e.g. creating a product), a service alone is enough and you don't need a facade at all. The controller can call the service directly, and the service commits via `IUnitOfWork`.
 
+> [!WARNING]
+> This is a **simplified example**. The stock check and the later save are not atomic, so two concurrent requests can both read `Stock = 1` and oversell the product. A real application needs concurrency protection, e.g. a row version (optimistic concurrency) or an atomic conditional update.
+
 The problem starts when one business operation uses **several services**. If each service saves on its own, you end up with **several separate transactions**, and a failure in the second one leaves the first one already saved. That's the moment to introduce a facade, and let **it** decide when to save (see below). Methods that are meant to be called from a facade (like `DecreaseStockAsync` above) therefore **don't save**.
 
 ## Facades
