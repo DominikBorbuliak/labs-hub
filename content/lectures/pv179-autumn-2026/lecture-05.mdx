@@ -305,7 +305,7 @@ public class Product
     public string Name { get; set; } = null!;
     public decimal Price { get; set; }
     public int Stock { get; set; }
-    public string InternalNote { get; set; } = null!;
+    public string InternalNote { get; set; } = string.Empty;
     public ICollection<OrderItem> OrderItems { get; set; } = [];
 }
 
