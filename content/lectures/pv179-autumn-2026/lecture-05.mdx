@@ -163,6 +163,11 @@ public class ProductService(IUnitOfWork unitOfWork) : IProductService
 
     public async Task DecreaseStockAsync(int id, int quantity, CancellationToken cancellationToken)
     {
+        if (quantity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be positive.");
+        }
+
         var product = await unitOfWork.Products.GetByIdAsync(id, cancellationToken)
             ?? throw new InvalidOperationException($"Product {id} not found.");
 
@@ -190,6 +195,7 @@ A **facade** is a simplified entry point to the business layer for **one use cas
 public interface IOrderFacade
 {
     Task<int> CreateOrderAsync(int customerId, CreateOrderDto dto, CancellationToken cancellationToken);
+    Task DeleteOrderAsync(int id, CancellationToken cancellationToken);
 }
 
 public class OrderFacade(
@@ -210,6 +216,12 @@ public class OrderFacade(
         await unitOfWork.SaveChangesAsync(cancellationToken);
 
         return order.Id;
+    }
+
+    public async Task DeleteOrderAsync(int id, CancellationToken cancellationToken)
+    {
+        await orderService.DeleteAsync(id, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
     }
 }
 ```
@@ -299,8 +311,8 @@ public record ProductDto(int Id, string Name, decimal Price);
 
 // DTO accepted from the client
 public record CreateProductDto(
-    [property: Required, MaxLength(100)] string Name,
-    [property: Range(0.01, double.MaxValue)] decimal Price);
+    [Required, MaxLength(100)] string Name,
+    [Range(0.01, double.MaxValue)] decimal Price);
 ```
 
 - Use **separate DTOs for input and output** (`CreateProductDto`, `UpdateProductDto`, `ProductDto`). They rarely have the same shape
@@ -372,7 +384,7 @@ public class HttpCurrentUser(IHttpContextAccessor accessor, ILogger<HttpCurrentU
 
     public string? Role => User?.FindFirstValue(ClaimTypes.Role);
 
-    public bool IsAdmin => Role == "Admin";
+    public bool IsAdmin => User?.IsInRole("Admin") ?? false;
 
     public void LogCurrentUser()
         => logger.LogInformation("Current user: {UserId} (role {Role})", Id, Role);
