@@ -1,16 +1,516 @@
 ---
 title: "Business Layer, Facades, DTOs and Services"
-description: "Implementing the business layer architecture, using facades for simplified interfaces, working with Data Transfer Objects (DTOs), and organizing application services."
+description: "Reviewing dependency injection, implementing the business layer architecture, using services and facades, working with Data Transfer Objects (DTOs), and accessing the current request with IHttpContextAccessor."
 order: 5
 recommendedStudyFrom: "2026-10-19"
 recommendedStudyTo: "2026-10-25"
-availableFrom: "2026-10-19"
+availableFrom: "2026-10-16"
 tags:
   - business-layer
   - facade
   - dto
   - service
+  - dependency-injection
+  - http-context-accessor
 ---
 
+# Agenda
+
+1. Milestone 1 Deadline
+2. Quiz: Dependency Injection
+3. Business Layer
+4. Services and Facades
+5. DTOs
+6. HttpContext Accessor
+
+# Milestone 1 Deadline
+
+The deadline for **Milestone 1** is **23.10.2026 23:59**.
+
+> [!IMPORTANT]
+> We won't be strictly checking for exactly 23:59, a few minutes of delay are okay. But **don't forget to submit**, a missed milestone is a missed milestone!
+
+# Quiz: Dependency Injection
+
+## Question 1: Lifetimes
+
+What are the three service lifetimes and when is each instance created?
+
+<Spoiler label="Double click to reveal the answer">
+
+- **Transient**: a new instance **every time** it's requested
+- **Scoped**: one instance **per scope** (in ASP.NET Core, per HTTP request)
+- **Singleton**: **one instance** for the whole lifetime of the application
+
+</Spoiler>
+
+## Question 2: Registration
+
+We have the following service, which depends on the Unit of Work:
+
+```csharp
+public class ProductService(IUnitOfWork unitOfWork) : IProductService
+{
+    // ...
+}
+```
+
+And we register the services like this:
+
+```csharp
+services.AddSingleton<IProductService, ProductService>();
+services.AddScoped<IUnitOfWork, UnitOfWork>();
+```
+
+What is wrong with this registration?
+
+<Spoiler label="Double click to reveal the answer">
+
+`ProductService` depends on `IUnitOfWork`. A **Singleton** holds a **Scoped** dependency, which is a **captive dependency**: the first `UnitOfWork` (and its `DbContext`) is kept alive forever and shared between requests and threads. The service should be **Scoped** (or Transient).
+
+</Spoiler>
+
+## Question 3: Why Inject?
+
+Why is it better to inject `IProductService` than to create it with `new ProductService(...)`?
+
+<Spoiler label="Double click to reveal the answer">
+
+The class depends on an **abstraction** and doesn't create or know about its dependencies (**Inversion of Control**). The container manages the lifetimes, and in tests you can easily substitute a mock or a fake implementation.
+
+</Spoiler>
+
+## Question 4: Middleware
+
+Where should the dependencies of a convention-based middleware be injected if they are Scoped?
+
+<Spoiler label="Double click to reveal the answer">
+
+As **parameters of `InvokeAsync`**, not in the constructor. The middleware itself is created only once, so a constructor parameter would become a captive dependency.
+
+</Spoiler>
+
+# Business Layer
+
+The **Business Layer (BL)** is the middle layer of the 3-layered architecture. It contains the **business logic**: the rules of your application (e.g. _"an order can't be created for a product that is out of stock"_).
+
+```plain
+┌──────────────────────────────────────────┐
+│ Presentation Layer (controllers)         │
+└────────────────────┬─────────────────────┘
+                     │ DTOs
+                     ▼
+┌──────────────────────────────────────────┐
+│ Business Layer (facades, services)       │
+└────────────────────┬─────────────────────┘
+                     │ IUnitOfWork, entities
+                     ▼
+┌──────────────────────────────────────────┐
+│ Data Access Layer (EF Core, repositories)│
+└──────────────────────────────────────────┘
+```
+
+- **Role**: Implements business rules and orchestrates the data access layer
+- **Purpose**: Keeps controllers thin (HTTP only) and the data access layer simple (persistence only). The same logic can then be reused from any presentation layer (API, console app, background job)
+- **Depends on**: the Data Access Layer. It must **never** depend on the Presentation Layer
+
+> [!NOTE]
+> Rule of thumb: a controller should only **receive a request, call the business layer, and return a response**. If you find an `if` with a business rule in a controller, it belongs in the business layer.
+
+## What Does Not Belong Here
+
+- HTTP concerns (`HttpContext`, status codes, `ActionResult`, reading request headers or bodies)
+- Database concerns (SQL, `DbContext` queries written directly, migrations)
+
+> [!NOTE]
+> If the business layer needs something from the request (e.g. the current user), **pass it as a parameter** from the controller. We'll look at `IHttpContextAccessor` at the end of this lecture.
+
+# Services and Facades
+
+The business layer is usually split into two kinds of classes: **services** and **facades**.
+
+## Services
+
+A **service** contains the business logic for **one area** (typically one entity or aggregate). It uses the Unit of Work to read and write data.
+
+```csharp
+public interface IProductService
+{
+    Task<Product?> GetByIdAsync(int id, CancellationToken cancellationToken);
+    Task<Product> CreateAsync(string name, decimal price, CancellationToken cancellationToken);
+    Task DecreaseStockAsync(int id, int quantity, CancellationToken cancellationToken);
+}
+
+public class ProductService(IUnitOfWork unitOfWork) : IProductService
+{
+    public async Task<Product?> GetByIdAsync(int id, CancellationToken cancellationToken)
+        => await unitOfWork.Products.GetByIdAsync(id, cancellationToken);
+
+    public async Task<Product> CreateAsync(string name, decimal price, CancellationToken cancellationToken)
+    {
+        if (price <= 0)
+        {
+            throw new ArgumentException("Price must be positive.", nameof(price));
+        }
+
+        var product = new Product { Name = name, Price = price };
+        unitOfWork.Products.Add(product);
+
+        // Standalone use case: the service commits itself
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+        return product;
+    }
+
+    public async Task DecreaseStockAsync(int id, int quantity, CancellationToken cancellationToken)
+    {
+        if (quantity <= 0)
+        {
+            throw new ArgumentOutOfRangeException(nameof(quantity), "Quantity must be positive.");
+        }
+
+        var product = await unitOfWork.Products.GetByIdAsync(id, cancellationToken)
+            ?? throw new InvalidOperationException($"Product {id} not found.");
+
+        if (product.Stock < quantity)
+        {
+            throw new InvalidOperationException("Not enough stock.");
+        }
+
+        // No save here: it's called from a facade, which commits all changes together
+        product.Stock -= quantity;
+    }
+}
+```
+
+> [!NOTE]
+> A service **can** save its own changes. For a simple use case that touches one area (e.g. creating a product), a service alone is enough and you don't need a facade at all. The controller can call the service directly, and the service commits via `IUnitOfWork`.
+
 > [!WARNING]
-> Work in progress.
+> This is a **simplified example**. The stock check and the later save are not atomic, so two concurrent requests can both read `Stock = 1` and oversell the product. A real application needs concurrency protection, e.g. a row version (optimistic concurrency) or an atomic conditional update.
+
+The problem starts when one business operation uses **several services**. If each service saves on its own, you end up with **several separate transactions**, and a failure in the second one leaves the first one already saved. That's the moment to introduce a facade, and let **it** decide when to save (see below). Methods that are meant to be called from a facade (like `DecreaseStockAsync` above) therefore **don't save**.
+
+## Facades
+
+A **facade** is a simplified entry point to the business layer for **one use case**. It **orchestrates several services** and owns the **transaction** (the Unit of Work commit). The controller then talks to one facade instead of many services.
+
+```csharp
+public interface IOrderFacade
+{
+    Task<int> CreateOrderAsync(int customerId, CreateOrderDto dto, CancellationToken cancellationToken);
+    Task DeleteOrderAsync(int id, CancellationToken cancellationToken);
+}
+
+public class OrderFacade(
+    IUnitOfWork unitOfWork,
+    IProductService productService,
+    IOrderService orderService) : IOrderFacade
+{
+    public async Task<int> CreateOrderAsync(int customerId, CreateOrderDto dto, CancellationToken cancellationToken)
+    {
+        foreach (var item in dto.Items)
+        {
+            await productService.DecreaseStockAsync(item.ProductId, item.Quantity, cancellationToken);
+        }
+
+        var order = await orderService.CreateAsync(customerId, dto.Items, cancellationToken);
+
+        // All changes are saved together, or none of them
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+
+        return order.Id;
+    }
+
+    public async Task DeleteOrderAsync(int id, CancellationToken cancellationToken)
+    {
+        await orderService.DeleteAsync(id, cancellationToken);
+        await unitOfWork.SaveChangesAsync(cancellationToken);
+    }
+}
+```
+
+```csharp
+[ApiController]
+[Route("api/orders")]
+public class OrdersController(IOrderFacade orderFacade) : ControllerBase
+{
+    [HttpPost]
+    public async Task<ActionResult<int>> Create(
+        int customerId, CreateOrderDto dto, CancellationToken cancellationToken)
+    {
+        var id = await orderFacade.CreateOrderAsync(customerId, dto, cancellationToken);
+        return Ok(id);
+    }
+}
+```
+
+> [!NOTE]
+> Taking `customerId` from the query string is just a placeholder. With authentication, you'd take it from the logged-in user (see the `HttpContext` Accessor section at the end), not from the client.
+
+## Services vs Facades
+
+| Aspect          | Service                          | Facade                                 |
+| --------------- | -------------------------------- | -------------------------------------- |
+| Scope           | One entity / area                | One use case across several areas      |
+| Depends on      | `IUnitOfWork`                    | Services (and `IUnitOfWork` to commit) |
+| Commits changes | When used alone                  | **Yes**, one commit per use case       |
+| Used by         | Facades, or controllers directly | Controllers                            |
+| Example         | `ProductService`, `OrderService` | `OrderFacade.CreateOrderAsync`         |
+
+> [!WARNING]
+> Services should **not** call facades. Dependencies go in one direction: controller → facade → service → unit of work (the facade can be skipped for simple use cases).
+
+Don't forget to register everything, e.g. per layer, as we did in the last lecture:
+
+```csharp
+public static class BusinessLayerServiceCollectionExtensions
+{
+    public static IServiceCollection AddBusinessLayer(this IServiceCollection services)
+    {
+        services.AddScoped<IProductService, ProductService>();
+        services.AddScoped<IOrderService, OrderService>();
+        services.AddScoped<IOrderFacade, OrderFacade>();
+        return services;
+    }
+}
+```
+
+> [!NOTE]
+> Services and facades depend on the Scoped `IUnitOfWork`, so they must be **Scoped** (or Transient) as well. Otherwise you'd end up with a captive dependency.
+
+# DTOs
+
+A **Data Transfer Object (DTO)** is a simple class that carries data **between layers** (or between the client and the server). It has **no behavior**, only properties.
+
+## Quiz: Why Not Expose Entities?
+
+Returning entities directly from the API is tempting. Why shouldn't we do it? Think about it first, then reveal the answer.
+
+<Spoiler label="Double click to reveal the answer">
+
+- **Leaking internals**: the client sees columns it shouldn't (e.g. `PasswordHash`, internal flags)
+- **Over-posting**: when you accept an entity in a request, the client can set properties it shouldn't (e.g. `Id`, `IsAdmin`)
+- **Tight coupling**: a change in the database model changes your public API
+- **Circular references**: navigation properties (`Order.Customer.Orders...`) break JSON serialization
+
+</Spoiler>
+
+## Example
+
+```csharp
+// Entity (data access layer)
+public class Product
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = null!;
+    public decimal Price { get; set; }
+    public int Stock { get; set; }
+    public string InternalNote { get; set; } = string.Empty;
+    public ICollection<OrderItem> OrderItems { get; set; } = [];
+}
+
+// DTO returned to the client
+public record ProductDto(int Id, string Name, decimal Price);
+
+// DTO accepted from the client
+public record CreateProductDto(
+    [Required, MaxLength(100)] string Name,
+    [Range(0.01, double.MaxValue)] decimal Price);
+```
+
+- Use **separate DTOs for input and output** (`CreateProductDto`, `UpdateProductDto`, `ProductDto`). They rarely have the same shape
+- **C# records** are a great fit: short, immutable and with value equality
+- A DTO contains only what the consumer **needs**, nothing more
+- Simple validation (required, length, range) can be expressed with **data annotations**, and `[ApiController]` validates it automatically
+
+## Where Do DTOs Live?
+
+DTOs are the **contract of the business layer**: facades accept and return them, so the controllers never touch entities. They live in the business layer (or in a separate shared project, if the presentation layer needs them as well).
+
+```plain
+Controller ──DTO──► Facade ──► Service ──entity──► Unit of Work
+```
+
+> [!NOTE]
+> We are **not** covering the mapping between entities and DTOs in this lecture. For now, just keep in mind that some conversion has to happen somewhere in the business layer.
+
+# HttpContext Accessor
+
+As we saw in the last lecture, **`HttpContext`** holds everything about the **current request and its response** (headers, query, user, ...). Controllers and middleware get it directly (`HttpContext` property in `ControllerBase`, parameter in `InvokeAsync`). But what if you need it in a **class that doesn't receive it**, e.g. a helper, a `DelegatingHandler` or a class registered in DI?
+
+## `IHttpContextAccessor`
+
+**`IHttpContextAccessor`** gives you access to the `HttpContext` of the **current request** from anywhere in the DI container. Register it once, then inject it:
+
+```csharp
+builder.Services.AddHttpContextAccessor();
+```
+
+```csharp
+public class CorrelationIdProvider(IHttpContextAccessor accessor)
+{
+    public string? GetCorrelationId()
+        => accessor.HttpContext?.Request.Headers["X-Correlation-Id"].FirstOrDefault();
+}
+```
+
+## Writing Your Own Wrapper
+
+The accessor only gives you **raw access** to `HttpContext`. Digging through `HttpContext.User.FindFirstValue(...)` or `Request.Headers[...]` in many places means repeating magic strings (claim types, header names) and tying all that code to HTTP.
+
+That's why it's common to **create your own small class** around it. It's just a regular class (and an interface for it) that you design and register in DI, so you decide what it exposes and how it's named (`CurrentUser`, `UserAccessor`, ...):
+
+1. Define an interface with **only what your app needs** (e.g. user id, role)
+2. Implement it with `IHttpContextAccessor`, so the knowledge of **how** to get the data lives in **one place**
+3. Register it in DI and inject your interface instead of the accessor
+
+## Example: Current User
+
+A typical use is a small class that exposes the logged-in user (id, role, ...), so other presentation-layer classes (controllers, filters, middleware) don't need to deal with claims:
+
+```csharp
+// Presentation layer
+public interface ICurrentUser
+{
+    int? Id { get; }
+    string? Role { get; }
+    bool IsAdmin { get; }
+
+    void LogCurrentUser();
+}
+
+public class HttpCurrentUser(IHttpContextAccessor accessor, ILogger<HttpCurrentUser> logger) : ICurrentUser
+{
+    private ClaimsPrincipal? User => accessor.HttpContext?.User;
+
+    public int? Id => int.TryParse(User?.FindFirstValue(ClaimTypes.NameIdentifier), out var id) ? id : null;
+
+    public string? Role => User?.FindFirstValue(ClaimTypes.Role);
+
+    public bool IsAdmin => User?.IsInRole("Admin") ?? false;
+
+    public void LogCurrentUser()
+        => logger.LogInformation("Current user: {UserId} (role {Role})", Id, Role);
+}
+```
+
+If the claim names or the role values change, you change them in **one place** instead of in every controller.
+
+> [!NOTE]
+> **Properties** fit simple, cheap values (`Id`, `Role`, `IsAdmin`). Use a **method** when the call does some work or has a side effect, like logging (`LogCurrentUser()`), takes an argument, can throw, or is expensive or async.
+
+```csharp
+builder.Services.AddScoped<ICurrentUser, HttpCurrentUser>();
+```
+
+A controller then reads the user and passes what the business layer needs as plain values:
+
+```csharp
+[ApiController]
+[Authorize]
+[Route("api/orders")]
+public class OrdersController(IOrderFacade orderFacade, ICurrentUser currentUser) : ControllerBase
+{
+    [HttpPost]
+    public async Task<ActionResult<int>> Create(CreateOrderDto dto, CancellationToken cancellationToken)
+    {
+        if (currentUser.Id is not { } customerId)
+        {
+            return Unauthorized();
+        }
+
+        var id = await orderFacade.CreateOrderAsync(customerId, dto, cancellationToken);
+        return Ok(id);
+    }
+
+    [HttpDelete("{id:int}")]
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        if (!currentUser.IsAdmin)
+        {
+            return Forbid();
+        }
+
+        await orderFacade.DeleteOrderAsync(id, cancellationToken);
+        return NoContent();
+    }
+}
+```
+
+## Example: Logging the Current User
+
+The wrapper is also handy in middleware, e.g. to log who made each request. Remember from the last lecture that a convention-based middleware is created once, so the **Scoped** `ICurrentUser` goes into `InvokeAsync`, not into the constructor:
+
+```csharp
+public class UserLoggingMiddleware(RequestDelegate next)
+{
+    public async Task InvokeAsync(HttpContext context, ICurrentUser currentUser)
+    {
+        currentUser.LogCurrentUser();
+
+        await next(context);
+    }
+}
+```
+
+```csharp
+app.UseAuthentication();
+app.UseAuthorization();
+app.UseMiddleware<UserLoggingMiddleware>(); // after authentication, so the user is known
+```
+
+## Example: Forwarding a Header to Another API
+
+When your API calls another API, you may want to forward the incoming `Authorization` header:
+
+```csharp
+public class AuthorizationForwardingHandler(IHttpContextAccessor accessor) : DelegatingHandler
+{
+    protected override Task<HttpResponseMessage> SendAsync(
+        HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var authorization = accessor.HttpContext?.Request.Headers.Authorization.ToString();
+        if (!string.IsNullOrEmpty(authorization))
+        {
+            request.Headers.TryAddWithoutValidation("Authorization", authorization);
+        }
+
+        return base.SendAsync(request, cancellationToken);
+    }
+}
+```
+
+```csharp
+builder.Services.AddTransient<AuthorizationForwardingHandler>();
+builder.Services.AddHttpClient<IExternalApiClient, ExternalApiClient>()
+    .AddHttpMessageHandler<AuthorizationForwardingHandler>();
+```
+
+## Things to Watch
+
+- **`HttpContext` can be `null`**: outside of a request (background jobs, hosted services) there is none, so always use `?.` and handle `null`
+- **Don't cache it** in a field or pass it to background work (`Task.Run`, fire-and-forget). It belongs to the request and is not valid after it ends. Read the values you need first
+- **Don't use it in services and facades.** As mentioned earlier, `HttpContext` doesn't belong in the business layer. Use the accessor in the presentation layer or other infrastructure code (like `HttpCurrentUser` or the handler above) and pass the values to the business layer as parameters
+
+> [!TIP]
+> [MS Learn: Access HttpContext in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/http-context)
+
+# Summary
+
+✓ Milestone 1 deadline (23.10.2026 23:59) communicated
+
+✓ Dependency injection knowledge tested
+
+✓ Role of the business layer in the 3-layered architecture explained
+
+✓ Services (business logic) and facades (use cases and transactions) distinguished
+
+✓ DTOs used instead of exposing entities
+
+✓ `IHttpContextAccessor` explained and used in the presentation layer
+
+> [!NOTE]
+> **Next time:** to be announced.
+
+> [!IMPORTANT]
+> Any questions?
