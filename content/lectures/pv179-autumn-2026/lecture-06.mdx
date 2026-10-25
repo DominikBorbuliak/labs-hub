@@ -88,9 +88,13 @@ public static class ProductMapper
 And its usage in a service or facade:
 
 ```csharp
-var product = await unitOfWork.Products.GetByIdAsync(id);
+// The specific repository loads the Category (Include), so ToDto() can use it
+var product = await unitOfWork.Products.GetByIdWithCategoryAsync(id);
 return product?.ToDto();
 ```
+
+> [!WARNING]
+> `ToDto()` reads `product.Category.Name`, so the category **must be loaded** (e.g. `Include(p => p.Category)` inside the repository). A plain `FindAsync` doesn't load it and the mapper would throw a `NullReferenceException`.
 
 > [!WARNING]
 > Don't forget to update the mapper whenever you add a property to an entity or a DTO. Forgotten properties are silently left at their default values!
@@ -104,7 +108,10 @@ return product?.ToDto();
 
 ### Convention vs. Configuration
 
-All the libraries work **by convention**: they match properties by **name** (and compatible type) and even **flatten** nested ones (`Category.Name` → `CategoryName`). If every property can be matched, **no configuration is needed**.
+All the libraries work **by convention**: they match properties by **name** (and compatible type) and even **flatten** nested ones (`Category.Name` → `CategoryName`). If every property can be matched, **no per-property configuration is needed**.
+
+> [!NOTE]
+> AutoMapper still needs the **type map** registered (`CreateMap<Product, ProductDto>()`), even when every property matches. Mapster and Mapperly don't require registration for simple cases (`Adapt<T>()`, or a declared `partial` method).
 
 We need **configuration** only when the mapper **can't find the matching property on its own**, for example:
 
@@ -200,7 +207,11 @@ public static partial ProductListItemDto ToListItem(Product product);
 ```
 
 > [!NOTE]
-> If Mapperly can't map a target property, it reports a **compile-time warning**, so you find out about missing configuration before running the app. The runtime mappers find out only when the mapping is executed (or when you explicitly validate the configuration).
+> If Mapperly can't map a target property, it reports a **compile-time warning**, so you find out about missing configuration before running the app. The runtime mappers **don't fail** on an unmapped target property by default, it silently stays at its default value, so you must **validate explicitly**:
+>
+> - AutoMapper: `configuration.AssertConfigurationIsValid()` (e.g. in a unit test)
+> - Mapster: `TypeAdapterConfig.GlobalSettings.RequireDestinationMemberSource = true` (and `Compile()` to validate the configuration)
+> - Or simply write a unit test for each mapping
 
 # Testing
 
