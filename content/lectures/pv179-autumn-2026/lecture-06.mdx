@@ -1,15 +1,390 @@
 ---
-title: "Testing and Mocking"
-description: "Writing effective unit tests, implementing mocking strategies for dependencies, and using in-memory databases for testing scenarios."
+title: "Mappers, Testing and Mocking"
+description: "Reviewing Milestone 1, mapping between entities and DTOs manually and with libraries (AutoMapper, Mapster, Mapperly), understanding types of tests, writing unit tests with the Arrange-Act-Assert pattern, and mocking dependencies with Moq."
 order: 6
 recommendedStudyFrom: "2026-10-26"
 recommendedStudyTo: "2026-11-01"
-availableFrom: "2026-10-26"
+availableFrom: "2026-10-25"
 tags:
+  - milestone
+  - mapper
+  - automapper
+  - mapster
+  - mapperly
   - unit-testing
+  - aaa
   - mock
-  - in-memory-db
+  - moq
 ---
 
+# Agenda
+
+1. Milestone 1 Review
+2. Mappers
+3. Testing
+4. Today's Assignment
+
+# Milestone 1 Review
+
+The deadline for **Milestone 1** is over. Submissions reviewed by **Dominik Borbuliak** are already done.
+
+- It went well overall, and I assigned a lot of **bonus points**
+- There is **no guarantee** of bonus points in the next milestones, so still try to **do your best**
+- **Fixes** can be made either in the current milestone or in the next one
+- I will **deduct points again for the same mistakes**, so don't repeat them
+
+> [!IMPORTANT]
+> Feel free to discuss anything about the milestone, the project, or the course!
+
+# Mappers
+
+## Why Do We Need Mappers?
+
+In the previous lecture we introduced **DTOs**, so we no longer expose entities directly. But something has to convert between them:
+
+- **Entity → DTO** when returning data to the caller
+- **DTO → Entity** when creating or updating data
+
+Writing this by hand in every service or facade leads to repetitive, error-prone code. A **mapper** centralizes the conversion in one place, so it's reusable, testable, and easy to change when a model changes.
+
+## Types of Mappers
+
+- **Manual mappers**: you write the mapping code yourself (static class, extension methods, or an injected service)
+  - Full control, explicit, easy to debug, and fast
+  - More boilerplate
+- **Runtime (reflection-based) mappers**: configure rules once and the library builds the mapping at runtime
+  - Little code, but errors show up at runtime and there is a performance cost
+- **Compile-time (source generator) mappers**: the library generates plain mapping code during the build
+  - Errors are found at compile time, the performance matches manual code, and the generated code can be inspected
+
+## Manual Mapping Example
+
+The classic approach is a static class with extension methods:
+
+```csharp
+public static class ProductMapper
+{
+    public static ProductDto ToDto(this Product product) => new()
+    {
+        Id = product.Id,
+        Name = product.Name,
+        Price = product.Price,
+        CategoryName = product.Category.Name
+    };
+
+    public static Product ToEntity(this CreateProductDto dto) => new()
+    {
+        Name = dto.Name,
+        Price = dto.Price,
+        CategoryId = dto.CategoryId
+    };
+
+    public static IEnumerable<ProductDto> ToDtos(
+        this IEnumerable<Product> products) =>
+        products.Select(p => p.ToDto());
+}
+```
+
+And its usage in a service or facade:
+
+```csharp
+var product = await unitOfWork.Products.GetByIdAsync(id);
+return product?.ToDto();
+```
+
 > [!WARNING]
-> Work in progress.
+> Don't forget to update the mapper whenever you add a property to an entity or a DTO. Forgotten properties are silently left at their default values!
+
+## Mapping Libraries
+
+### Runtime Mappers
+
+- **[AutoMapper](https://automapper.io/)**: the most well-known one. Uses profiles (`CreateMap<Source, Destination>()`) and conventions based on matching property names. Note that newer versions require a commercial license
+- **[Mapster](https://github.com/MapsterMapper/Mapster)**: a fast and lightweight alternative with a simple API (`product.Adapt<ProductDto>()`) and a fluent configuration
+
+### Convention vs. Configuration
+
+All the libraries work **by convention**: they match properties by **name** (and compatible type) and even **flatten** nested ones (`Category.Name` → `CategoryName`). If every property can be matched, **no configuration is needed**.
+
+We need **configuration** only when the mapper **can't find the matching property on its own**, for example:
+
+- The names are different (`Product.Title` → `ProductDto.Name`)
+- The value must be computed or transformed
+- A target property should be skipped (e.g. `Id` when creating an entity)
+
+```csharp
+public class Product
+{
+    public int Id { get; set; }
+    public string Title { get; set; }
+    public decimal Price { get; set; }
+    public Category Category { get; set; }
+}
+
+public class ProductDto
+{
+    public int Id { get; set; }          // same name, mapped automatically
+    public string Name { get; set; }     // different name, needs configuration
+    public decimal Price { get; set; }   // same name, mapped automatically
+    public string CategoryName { get; set; } // flattened from Category.Name
+}
+```
+
+#### AutoMapper
+
+```csharp
+public class ProductProfile : Profile
+{
+    public ProductProfile() =>
+        CreateMap<Product, ProductDto>()
+            .ForMember(d => d.Name, o => o.MapFrom(s => s.Title));
+}
+
+var dto = mapper.Map<ProductDto>(product);
+```
+
+#### Mapster
+
+```csharp
+TypeAdapterConfig<Product, ProductDto>
+    .NewConfig()
+    .Map(d => d.Name, s => s.Title);
+
+var dto = product.Adapt<ProductDto>();
+```
+
+> [!TIP]
+> Both libraries can also ignore a property (`o.Ignore()` / `.Ignore(d => d.Id)`) or transform a value inside the same `MapFrom` / `Map` expression.
+
+### Compile-Time (Source Generator) Mappers
+
+- **[Mapperly](https://mapperly.riok.app/)**: you declare a `partial` class with the method signatures and the generator writes the implementation during the build
+- **Mapster (with Mapster.Tool)**: can also generate the mapping code at build time
+
+Mapperly is configured with **attributes** on the method:
+
+```csharp
+[Mapper]
+public static partial class ProductMapper
+{
+    [MapProperty(nameof(Product.Title), nameof(ProductDto.Name))]
+    public static partial ProductDto ToDto(Product product);
+
+    [MapperIgnoreTarget(nameof(Product.Id))]
+    [MapProperty(nameof(CreateProductDto.Name), nameof(Product.Title))]
+    public static partial Product ToEntity(CreateProductDto dto);
+}
+```
+
+You can also **write a mapping by hand** inside the mapper class when the generated code isn't enough (custom logic, special formatting, ...). Mapperly **uses your method automatically** whenever it needs that source → target conversion, and generates the rest:
+
+```csharp
+[Mapper]
+public static partial class ProductListMapper
+{
+    // Generated, Category -> string is mapped by our own method below
+    public static partial ProductListItemDto ToListItem(Product product);
+
+    // Hand-written, used by Mapperly for every Category -> string mapping
+    private static string MapCategory(Category category) =>
+        $"{category.Name} ({category.Products.Count})";
+}
+```
+
+The method is picked up **automatically** because its types match exactly. If you want to use a specific method for a specific property (e.g. there are more methods for the same types), point to it with `Use`:
+
+```csharp
+[MapProperty(nameof(Product.Category), nameof(ProductListItemDto.Category),
+    Use = nameof(MapCategory))]
+public static partial ProductListItemDto ToListItem(Product product);
+```
+
+> [!NOTE]
+> If Mapperly can't map a target property, it reports a **compile-time warning**, so you find out about missing configuration before running the app. The runtime mappers find out only when the mapping is executed (or when you explicitly validate the configuration).
+
+# Testing
+
+## Types of Tests
+
+What types of tests do you know?
+
+<Spoiler label="Double click to reveal the answer">
+
+- **Unit tests**: test a **single unit** (method, class) in isolation. Fast, numerous, and run on every build
+- **Integration tests**: test how **multiple components work together** (e.g. a service with a real or in-memory database)
+- **End-to-end (E2E) tests**: test the **whole system** from the user's perspective (e.g. UI or API calls against a running app). Slow and fragile, so there are only a few of them
+- **Smoke tests**: a quick, shallow check that the most critical functionality works and the app starts (e.g. after a deployment)
+- **Performance tests**: measure speed, throughput, and resource usage
+  - **Load tests**: behavior under the expected load
+  - **Stress tests**: behavior beyond the limits, until it breaks
+  - Tools: BenchmarkDotNet (micro-benchmarks), k6, JMeter, NBomber
+- **Fuzz testing (fuzzing)**: feed the system **random or malformed input** to find crashes and security issues
+- **Others**: regression, acceptance (UAT), security, contract, and mutation testing
+
+</Spoiler>
+
+## Testing Pyramid
+
+```text
+          /\
+         /  \        E2E tests
+        /    \       few, slow, expensive
+       /------\
+      /        \     Integration tests
+     /          \    some, medium speed
+    /------------\
+   /              \  Unit tests
+  /                \ many, fast, cheap
+ /------------------\
+```
+
+> [!NOTE]
+> Rule of thumb: the higher in the pyramid, the slower, more expensive, and more fragile the tests are, so we write fewer of them. Most of our tests should be unit tests.
+
+## Unit Testing: Arrange, Act, Assert
+
+A well-structured unit test has three clear parts, known as **AAA**:
+
+1. **Arrange**: set up the object under test, its dependencies, and the input data
+2. **Act**: call the method under test (ideally a single call)
+3. **Assert**: verify that the result or the side effects are what we expect
+
+```csharp
+[Fact]
+public void CalculateTotal_WithTwoItems_ReturnsSum()
+{
+    // Arrange
+    var calculator = new PriceCalculator();
+    var items = new[] { new Item(10m), new Item(15m) };
+
+    // Act
+    var total = calculator.CalculateTotal(items);
+
+    // Assert
+    Assert.Equal(25m, total);
+}
+```
+
+> [!TIP]
+> Name tests so they describe the scenario: `Method_Scenario_ExpectedResult`. Keep one logical assertion per test.
+
+### Assertion Libraries
+
+The built-in `Assert` is fine, but libraries like **[Shouldly](https://docs.shouldly.org/)** make assertions **more readable** and give **better failure messages**:
+
+```csharp
+[Fact]
+public void CalculateTotal_WithTwoItems_ReturnsSum()
+{
+    // Arrange
+    var calculator = new PriceCalculator();
+    var items = new[] { new Item(10m), new Item(15m) };
+
+    // Act
+    var total = calculator.CalculateTotal(items);
+
+    // Assert
+    total.ShouldBe(25m);
+}
+```
+
+More examples:
+
+```csharp
+result.ShouldNotBeNull();
+result.Name.ShouldBe("Laptop");
+products.ShouldNotBeEmpty();
+products.ShouldContain(p => p.Price > 100m);
+Should.Throw<ArgumentException>(() => calculator.CalculateTotal(null));
+```
+
+If the test fails, Shouldly prints the **expression** that was tested (e.g. `total should be 25 but was 20`), not just "Expected: 25, Actual: 20".
+
+> [!NOTE]
+> Another popular option is **[FluentAssertions](https://fluentassertions.com/)** (`total.Should().Be(25m)`). Note that newer versions require a commercial license.
+
+## Mocking
+
+### Why Do We Need It?
+
+Our services depend on other things: the unit of work, repositories, the database, external APIs, the clock, and so on. In a **unit test** we want to test only the unit itself, so we **replace the dependencies with fake objects** (mocks). This makes tests:
+
+- **Isolated**: a failure points to the unit under test, not to its dependencies
+- **Fast**: no database or network access
+- **Deterministic**: we control exactly what the dependency returns, including errors that are hard to reproduce
+- **Verifiable**: we can check that the dependency was called (e.g. that an email was "sent")
+
+This is another reason why we use **dependency injection** and depend on interfaces.
+
+### Moq
+
+**[Moq](https://github.com/devlooped/moq)** is the most popular mocking library for .NET:
+
+```csharp
+[Fact]
+public async Task GetProduct_ExistingId_ReturnsDto()
+{
+    // Arrange
+    var product = new Product { Id = 1, Name = "Laptop", Price = 1000m };
+
+    var repository = new Mock<IProductRepository>();
+    repository
+        .Setup(r => r.GetByIdAsync(1))
+        .ReturnsAsync(product);
+
+    var unitOfWork = new Mock<IUnitOfWork>();
+    unitOfWork.Setup(u => u.Products).Returns(repository.Object);
+
+    var service = new ProductService(unitOfWork.Object);
+
+    // Act
+    var result = await service.GetProductAsync(1);
+
+    // Assert
+    Assert.NotNull(result);
+    Assert.Equal("Laptop", result.Name);
+    repository.Verify(r => r.GetByIdAsync(1), Times.Once);
+}
+```
+
+- `Setup(...)` defines what the mock returns for a call
+- `.Object` gives the mocked instance to pass to the tested class
+- `Verify(...)` checks that a call happened (and how many times)
+
+### Other Libraries
+
+- **[NSubstitute](https://nsubstitute.github.io/)**: a friendly syntax without lambdas (`repo.GetByIdAsync(1).Returns(product)`)
+- **[FakeItEasy](https://fakeiteasy.github.io/)**: an easy-to-read fluent API
+- **[JustMock](https://www.telerik.com/products/mocking.aspx)** and **[TypeMock](https://www.typemock.com/)**: commercial tools that can also mock static and non-virtual members
+
+> [!WARNING]
+> Don't over-mock. Mock the boundaries (repositories, external services), not simple objects like DTOs or entities, and don't verify implementation details that don't matter.
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-06](https://gitlab.fi.muni.cz/pv179/seminar-06-2026-testing-mocking-and-utilities)
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Milestone 1 review communicated
+
+✓ Need for mappers and their types explained
+
+✓ Manual mapping and mapping libraries (AutoMapper, Mapster, Mapperly) compared
+
+✓ Types of tests and the Arrange-Act-Assert pattern explained
+
+✓ Mocking explained and demonstrated with Moq
+
+✓ Today's assignment downloaded
+
+> [!NOTE]
+> **Next time:** to be announced.
+
+> [!IMPORTANT]
+> Any questions?
