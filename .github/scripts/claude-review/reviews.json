@@ -1,0 +1,12 @@
+[
+  {
+    "title": "Lecture content review",
+    "prompt": "content.md",
+    "match": "^content/"
+  },
+  {
+    "title": "Code review",
+    "prompt": "code.md",
+    "match": "^(?!content/)"
+  }
+]
