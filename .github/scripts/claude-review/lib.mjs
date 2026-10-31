@@ -6,6 +6,7 @@ export const STATE_DIR = ".claude-review";
 const API_URL = "https://api.github.com";
 const FINDING_MARKER = /<!-- claude-review:([A-Za-z0-9_-]+) -->/;
 const OUR_AUTHOR = "github-actions";
+const PROGRESS_MARKER = "<!-- claude-review-progress -->";
 
 const VERDICTS = {
   approve: "🟢 Approval recommended",
@@ -40,7 +41,7 @@ const request = async (path, options = {}) => {
     const text = await response.text();
     throw new Error(`${options.method ?? "GET"} ${path}: ${text}`);
   }
-  return response.json();
+  return response.status === 204 ? null : response.json();
 };
 
 export const rest = (path, method, body) =>
@@ -57,16 +58,45 @@ export const graphql = async (query, variables) => {
   return data;
 };
 
-export const fetchFiles = async (repository, number) => {
-  const files = [];
+const fetchAll = async (path) => {
+  const items = [];
   for (let page = 1; ; page++) {
-    const batch = await rest(
-      `/repos/${repository}/pulls/${number}/files?per_page=100&page=${page}`
-    );
-    files.push(...batch);
+    const batch = await rest(`${path}?per_page=100&page=${page}`);
+    items.push(...batch);
     if (batch.length < 100) {
-      return files;
+      return items;
     }
+  }
+};
+
+export const fetchFiles = (repository, number) =>
+  fetchAll(`/repos/${repository}/pulls/${number}/files`);
+
+const findProgressComment = async (repository, number) => {
+  const comments = await fetchAll(
+    `/repos/${repository}/issues/${number}/comments`
+  );
+  return comments.find(
+    ({ user, body }) =>
+      user?.login === `${OUR_AUTHOR}[bot]` && body.includes(PROGRESS_MARKER)
+  );
+};
+
+// Keeps a single status comment per PR, however many runs update it.
+export const setProgress = async (repository, number, text) => {
+  const body = `${PROGRESS_MARKER}\n${text}`;
+  const comment = await findProgressComment(repository, number);
+  await (comment
+    ? rest(`/repos/${repository}/issues/comments/${comment.id}`, "PATCH", {
+        body,
+      })
+    : rest(`/repos/${repository}/issues/${number}/comments`, "POST", { body }));
+};
+
+export const clearProgress = async (repository, number) => {
+  const comment = await findProgressComment(repository, number);
+  if (comment) {
+    await rest(`/repos/${repository}/issues/comments/${comment.id}`, "DELETE");
   }
 };
 
@@ -213,7 +243,10 @@ export const composePrompt = (base, focuses) =>
 // comment targets a line outside the diff, so a stray line number moves to the
 // closest line in the file and the comment says where it really belongs.
 export const anchorFinding = (finding, files) => {
-  const file = files.find(({ filename }) => filename === finding.path);
+  // A file whose type changed is listed twice, removed and then added.
+  const file = files.find(
+    ({ filename, status }) => filename === finding.path && status !== "removed"
+  );
   const rows = parsePatch(file?.patch).filter(({ line }) => line !== undefined);
   if (rows.length === 0) {
     return null;

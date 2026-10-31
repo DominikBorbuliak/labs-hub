@@ -1,25 +1,43 @@
 name: Claude Review
 
+# Called by ci.yml, which decides when a PR gets reviewed.
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, ready_for_review]
-
-# A newer push supersedes the running review, so it does not spend plan usage.
-concurrency:
-  group: claude-review-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  workflow_call:
+    secrets:
+      CLAUDE_CODE_OAUTH_TOKEN:
+        required: true
 
 permissions: {}
 
 jobs:
+  # A separate job, so the job running Claude never holds a write token.
+  announce:
+    name: Announce
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Post status comment
+        # The comment is only a courtesy, so it must not stop the review.
+        continue-on-error: true
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node .github/scripts/claude-review/progress.mjs reviewing
+
   # Claude only reads: the job token is read-only and write tools are denied,
   # so text inside a PR cannot make it change anything on GitHub.
   review:
     name: Review
-    # Secrets are withheld from fork PRs, so those are skipped.
-    if: >-
-      github.event.pull_request.head.repo.full_name == github.repository &&
-      !github.event.pull_request.draft
+    needs: announce
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
@@ -86,3 +104,28 @@ jobs:
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           REVIEW_RESULT: ${{ needs.review.outputs.result }}
         run: node .github/scripts/claude-review/post-review.mjs
+
+  # Runs after a failure or cancellation, which would otherwise leave the status
+  # comment saying the review is still running.
+  finish:
+    name: Finish
+    needs: [review, publish]
+    if: ${{ always() && needs.publish.result != 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Update status comment
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          STATUS: ${{ contains(needs.*.result, 'cancelled') && 'cancelled' || 'failed' }}
+        run: node .github/scripts/claude-review/progress.mjs "$STATUS"

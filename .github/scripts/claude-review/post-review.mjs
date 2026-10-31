@@ -4,6 +4,7 @@
 
 import {
   buildReview,
+  clearProgress,
   fetchFiles,
   fetchThreads,
   graphql,
@@ -87,4 +88,11 @@ try {
     ...payload,
     body: [body, ...inline].join("\n\n---\n\n"),
   });
+}
+
+// The review is out, so a leftover status comment must not fail this job.
+try {
+  await clearProgress(repository, number);
+} catch (error) {
+  console.error(`::warning::Could not remove status comment: ${error.message}`);
 }
