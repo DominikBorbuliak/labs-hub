@@ -1,0 +1,88 @@
+name: Claude Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+# A newer push supersedes the running review, so it does not spend plan usage.
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  # Claude only reads: the job token is read-only and write tools are denied,
+  # so text inside a PR cannot make it change anything on GitHub.
+  review:
+    name: Review
+    # Secrets are withheld from fork PRs, so those are skipped.
+    if: >-
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      result: ${{ steps.claude.outputs.structured_output }}
+    steps:
+      # The head commit, not the merge ref, so file lines match the diff.
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Collect PR state
+        id: state
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          node .github/scripts/claude-review/fetch-state.mjs
+          echo "schema=$(jq -c . .github/scripts/claude-review/schema.json)" >> "$GITHUB_OUTPUT"
+      - name: Run Claude
+        id: claude
+        # v1.0.266, pinned because this step receives the OAuth token. It bundles
+        # Claude Code, so a newer --model can require bumping this pin.
+        uses: anthropics/claude-code-action@d535f5172dec02b204866b393d6b20b9b2aaf98d
+        with:
+          # Keep this the only credential: ANTHROPIC_API_KEY would take
+          # precedence and bill the API instead of the subscription.
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          # Skips the Claude GitHub App, which is not installed or needed.
+          github_token: ${{ github.token }}
+          prompt: Follow the instructions in .claude-review/prompt.md.
+          claude_args: |
+            --model claude-opus-5-5
+            --max-turns 40
+            --allowedTools "Read,Glob,Grep"
+            --disallowedTools "Bash,Edit,MultiEdit,Write,NotebookEdit,WebFetch,WebSearch"
+            --json-schema '${{ steps.state.outputs.schema }}'
+
+  # Publishing is plain code, separate from the job that runs Claude.
+  publish:
+    name: Publish
+    needs: review
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      # Resolving review threads via GraphQL is expected to need contents.
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6.0.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Publish review
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          REVIEW_RESULT: ${{ needs.review.outputs.result }}
+        run: node .github/scripts/claude-review/post-review.mjs
