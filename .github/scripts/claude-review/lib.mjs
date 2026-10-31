@@ -375,6 +375,11 @@ export const buildReview = ({
       );
       const verdict =
         result.verdict === "approve" && blocking ? "changes" : result.verdict;
+      // Reasons exist only for this run, as earlier ones are not stored.
+      const allResolved = [
+        ...resolved,
+        ...ours.filter(({ is_resolved }) => is_resolved),
+      ];
       const open = [
         ...openIssues.map(issueLine),
         ...failedToResolve.map(({ severity, title, url }) =>
@@ -395,17 +400,17 @@ export const buildReview = ({
         open.length > 0
           ? section(count(open, "open issue"), open, true)
           : "**No open issues** 🎉",
-        ...(resolved.length > 0
+        ...(allResolved.length > 0
           ? [
               "",
               section(
-                `${count(resolved, "issue")} resolved since last review`,
-                resolved.map(({ severity, title, url, id }) =>
+                `${count(allResolved, "issue")} resolved`,
+                allResolved.map(({ severity, title, url, id }) =>
                   issueLine({
                     severity,
                     title,
                     url,
-                    suffix: `: ${reasons.get(id)}`,
+                    suffix: reasons.has(id) ? `: ${reasons.get(id)}` : "",
                   })
                 ),
                 false
