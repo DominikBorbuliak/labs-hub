@@ -6,8 +6,7 @@ export const STATE_DIR = ".claude-review";
 const API_URL = "https://api.github.com";
 const FINDING_MARKER = /<!-- claude-review:([A-Za-z0-9_-]+) -->/;
 const OUR_AUTHOR = "github-actions";
-const PROGRESS_MARKER = "<!-- claude-review-progress -->";
-const SUMMARY_MARKER = "<!-- claude-review-overview -->";
+const COMMENT_MARKER = "<!-- claude-review-overview -->";
 
 const VERDICTS = {
   approve: "🟢 Approval recommended",
@@ -42,7 +41,7 @@ const request = async (path, options = {}) => {
     const text = await response.text();
     throw new Error(`${options.method ?? "GET"} ${path}: ${text}`);
   }
-  return response.status === 204 ? null : response.json();
+  return response.json();
 };
 
 export const rest = (path, method, body) =>
@@ -73,49 +72,22 @@ const fetchAll = async (path) => {
 export const fetchFiles = (repository, number) =>
   fetchAll(`/repos/${repository}/pulls/${number}/files`);
 
-const fetchOwnComments = async (repository, number, markers) => {
+// Keeps one comment per PR for the status and summary, edited by every run so
+// earlier verdicts stay in its edit history.
+export const updateReviewComment = async (repository, number, text) => {
+  const body = `${COMMENT_MARKER}\n${text}`;
   const comments = await fetchAll(
     `/repos/${repository}/issues/${number}/comments`
   );
-  return comments.filter(
-    ({ user, body }) =>
-      user?.login === `${OUR_AUTHOR}[bot]` &&
-      markers.some((marker) => body.includes(marker))
+  const comment = comments.find(
+    ({ user, body: existing }) =>
+      user?.login === `${OUR_AUTHOR}[bot]` && existing.includes(COMMENT_MARKER)
   );
-};
-
-export const postComment = (repository, number, body) =>
-  rest(`/repos/${repository}/issues/${number}/comments`, "POST", { body });
-
-export const deleteComments = (repository, comments) =>
-  Promise.all(
-    comments.map(({ id }) =>
-      rest(`/repos/${repository}/issues/comments/${id}`, "DELETE")
-    )
-  );
-
-// The comments a finished review replaces: the status and the old summary.
-export const fetchOutdatedComments = (repository, number) =>
-  fetchOwnComments(repository, number, [PROGRESS_MARKER, SUMMARY_MARKER]);
-
-// Keeps a single status comment per PR, however many runs update it.
-export const setProgress = async (repository, number, text) => {
-  const body = `${PROGRESS_MARKER}\n${text}`;
-  const [comment] = await fetchOwnComments(repository, number, [
-    PROGRESS_MARKER,
-  ]);
   await (comment
     ? rest(`/repos/${repository}/issues/comments/${comment.id}`, "PATCH", {
         body,
       })
-    : postComment(repository, number, body));
-};
-
-export const clearProgress = async (repository, number) => {
-  const comments = await fetchOwnComments(repository, number, [
-    PROGRESS_MARKER,
-  ]);
-  await deleteComments(repository, comments);
+    : rest(`/repos/${repository}/issues/${number}/comments`, "POST", { body }));
 };
 
 const THREADS_QUERY = `
@@ -391,8 +363,6 @@ export const buildReview = ({
         ),
       ];
       return [
-        SUMMARY_MARKER,
-        "",
         `### ${VERDICTS[verdict]}`,
         "",
         result.summary,

@@ -143,10 +143,11 @@ recommended, 🟡 Changes recommended or 🔵 Needs a closer look.
 - The `Review` job runs Claude read-only and returns structured JSON (see
   `schema.json`). The `Publish` job then uses plain code to resolve threads and
   post the results. Keep Claude away from write access to GitHub.
-- The `Announce` job posts a status comment while the review runs. `Publish`
-  replaces it and the previous summary with a new summary, so a PR has one
-  summary at a time and each review still notifies people. `Finish` handles
-  failures and cancellations.
+- A PR has one review comment, which every run edits, so earlier verdicts stay
+  in its edit history. `Announce` sets it to a status while the review runs,
+  `Publish` replaces that with the summary, and `Finish` handles failures and
+  cancellations. GitHub does not notify people about edits, so only a new review
+  with inline comments pings them.
 - There is no stored state: each run rebuilds it from the PR's review threads,
   whose comments carry a hidden marker.
 - It authenticates with the `CLAUDE_CODE_OAUTH_TOKEN` secret, a one-year token
