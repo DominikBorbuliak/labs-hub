@@ -66,6 +66,8 @@ if (review.comments.length > 0) {
     await rest(`/repos/${repository}/pulls/${number}/reviews`, "POST", {
       commit_id: headSha,
       event: "COMMENT",
+      // GitHub documents a body as required here. The summary has its own comment.
+      body: "",
       comments: review.comments,
     });
   } catch (error) {
