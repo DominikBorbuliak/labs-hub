@@ -66,8 +66,6 @@ if (review.comments.length > 0) {
     await rest(`/repos/${repository}/pulls/${number}/reviews`, "POST", {
       commit_id: headSha,
       event: "COMMENT",
-      // GitHub requires a body here. The verdict is in the summary comment.
-      body: "New findings are below. The summary is in Claude's review comment on this PR.",
       comments: review.comments,
     });
   } catch (error) {
