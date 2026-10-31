@@ -91,8 +91,12 @@ if (review.comments.length > 0) {
 const inline = rejected.map(
   ({ path, line, body: comment }) => `**\`${path}:${line}\`**\n\n${comment}`
 );
-const summary = [review.render(resolved, failedToResolve), ...inline].join(
-  "\n\n---\n\n"
+await updateReviewComment(
+  repository,
+  number,
+  (round) =>
+    [review.render(resolved, failedToResolve, round), ...inline].join(
+      "\n\n---\n\n"
+    ),
+  { finished: true }
 );
-
-await updateReviewComment(repository, number, summary);

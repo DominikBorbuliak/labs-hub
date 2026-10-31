@@ -7,6 +7,7 @@ const API_URL = "https://api.github.com";
 const FINDING_MARKER = /<!-- claude-review:([A-Za-z0-9_-]+) -->/;
 const OUR_AUTHOR = "github-actions";
 const COMMENT_MARKER = "<!-- claude-review-overview -->";
+const ROUND_MARKER = /<!-- claude-review-round:(\d+) -->/;
 
 const VERDICTS = {
   approve: "🟢 Approval recommended",
@@ -73,9 +74,14 @@ export const fetchFiles = (repository, number) =>
   fetchAll(`/repos/${repository}/pulls/${number}/files`);
 
 // Keeps one comment per PR for the status and summary, edited by every run so
-// earlier verdicts stay in its edit history.
-export const updateReviewComment = async (repository, number, text) => {
-  const body = `${COMMENT_MARKER}\n${text}`;
+// earlier verdicts stay in its edit history. It also stores how many reviews
+// have finished, so cancelled and failed runs do not count as a round.
+export const updateReviewComment = async (
+  repository,
+  number,
+  renderText,
+  { finished = false } = {}
+) => {
   const comments = await fetchAll(
     `/repos/${repository}/issues/${number}/comments`
   );
@@ -83,6 +89,13 @@ export const updateReviewComment = async (repository, number, text) => {
     ({ user, body: existing }) =>
       user?.login === `${OUR_AUTHOR}[bot]` && existing.includes(COMMENT_MARKER)
   );
+  const rounds = Number(comment?.body.match(ROUND_MARKER)?.[1] ?? 0);
+  const round = rounds + 1;
+  const body = [
+    COMMENT_MARKER,
+    `<!-- claude-review-round:${finished ? round : rounds} -->`,
+    renderText(round),
+  ].join("\n");
   await (comment
     ? rest(`/repos/${repository}/issues/comments/${comment.id}`, "PATCH", {
         body,
@@ -341,7 +354,7 @@ export const buildReview = ({
     comments,
     toResolve,
     reasons,
-    render: (resolved, failedToResolve = []) => {
+    render: (resolved, failedToResolve = [], round = 1) => {
       const blocking = [...openIssues, ...failedToResolve, ...unplaced].some(
         ({ severity }) => severity !== "low"
       );
@@ -363,7 +376,7 @@ export const buildReview = ({
         ),
       ];
       return [
-        `### ${VERDICTS[verdict]}`,
+        `### ${VERDICTS[verdict]} · Round ${round}`,
         "",
         result.summary,
         "",

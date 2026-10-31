@@ -10,9 +10,12 @@ const [status] = process.argv.slice(2);
 
 const runUrl = `https://github.com/${repository}/actions/runs/${runId}`;
 const messages = {
-  reviewing: `🔄 Claude is [reviewing this PR](${runUrl}). The summary will appear here.`,
-  failed: `⚠️ Claude could not finish reviewing this PR. [See the run](${runUrl}).`,
-  cancelled: `⏹️ A newer push cancelled this review. A new one starts if the build passes.`,
+  reviewing: (round) =>
+    `⏳ Claude is [reviewing this PR](${runUrl}) · Round ${round}`,
+  failed: () =>
+    `⚠️ Claude could not finish reviewing this PR. [See the run](${runUrl}).`,
+  cancelled: () =>
+    "🚫 A newer push cancelled this review. A new one starts if the build passes.",
 };
 
 if (!messages[status]) {

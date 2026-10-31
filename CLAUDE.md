@@ -148,6 +148,8 @@ recommended, 🟡 Changes recommended or 🔵 Needs a closer look.
   `Publish` replaces that with the summary, and `Finish` handles failures and
   cancellations. GitHub does not notify people about edits, so only a new review
   with inline comments pings them.
+- The summary title shows the review round. Only finished reviews count, and
+  the count is kept in a hidden marker in the comment.
 - There is no stored state: each run rebuilds it from the PR's review threads,
   whose comments carry a hidden marker.
 - It authenticates with the `CLAUDE_CODE_OAUTH_TOKEN` secret, a one-year token
