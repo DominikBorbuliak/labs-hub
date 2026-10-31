@@ -10,6 +10,9 @@
     },
     "ghcr.io/devcontainers/features/github-cli:1": {}
   },
+  "containerEnv": {
+    "CLAUDE_CONFIG_DIR": "/home/node/.claude"
+  },
   "remoteEnv": {
     "GH_TOKEN": "${localEnv:GH_TOKEN}"
   },
@@ -44,7 +47,7 @@
   },
   "mounts": [
     "source=labs-hub-gh-config,target=/home/node/.config/gh,type=volume",
-    "source=labs-hub-copilot-config,target=/home/node/.copilot,type=volume"
+    "source=labs-hub-claude-config,target=/home/node/.claude,type=volume"
   ],
   "workspaceFolder": "/workspace",
   "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",

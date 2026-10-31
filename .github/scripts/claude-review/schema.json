@@ -1,0 +1,63 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["verdict", "summary", "findings", "resolved_threads"],
+  "properties": {
+    "verdict": {
+      "type": "string",
+      "enum": ["approve", "changes", "discussion"]
+    },
+    "summary": {
+      "type": "string",
+      "description": "One or two sentences justifying the verdict."
+    },
+    "findings": {
+      "type": "array",
+      "description": "New issues only, never one already raised in a thread.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "line", "severity", "title", "body"],
+        "properties": {
+          "path": { "type": "string" },
+          "line": {
+            "type": "integer",
+            "description": "New-file line number from the annotated diff."
+          },
+          "start_line": {
+            "type": "integer",
+            "description": "First line of a multi-line range, if any."
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["high", "medium", "low"]
+          },
+          "title": {
+            "type": "string",
+            "description": "Short imperative title, under 80 characters."
+          },
+          "body": {
+            "type": "string",
+            "description": "The problem, its consequence and how to fix it."
+          }
+        }
+      }
+    },
+    "resolved_threads": {
+      "type": "array",
+      "description": "Open threads of ours that the code now addresses.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["thread_id", "reason"],
+        "properties": {
+          "thread_id": { "type": "string" },
+          "reason": {
+            "type": "string",
+            "description": "One short sentence saying how it was addressed."
+          }
+        }
+      }
+    }
+  }
+}
