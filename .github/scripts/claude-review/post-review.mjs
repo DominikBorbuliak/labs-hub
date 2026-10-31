@@ -1,13 +1,17 @@
-// Publishes Claude's result: resolves addressed threads, then posts one review
-// holding the summary and any new inline comments. Set DRY_RUN to print the
-// review without writing to GitHub.
+// Publishes Claude's result: resolves addressed threads, posts new findings as
+// an inline review, then replaces the summary comment. The summary is a regular
+// comment because a submitted review cannot be deleted, and a new comment still
+// notifies people, which editing one would not. Set DRY_RUN to print the result
+// without writing to GitHub.
 
 import {
   buildReview,
-  clearProgress,
+  deleteComments,
   fetchFiles,
+  fetchOutdatedComments,
   fetchThreads,
   graphql,
+  postComment,
   requireEnv,
   rest,
 } from "./lib.mjs";
@@ -59,40 +63,48 @@ for (const thread of review.toResolve) {
   }
 }
 
-const body = review.render(resolved, failedToResolve);
-const reviewsPath = `/repos/${repository}/pulls/${number}/reviews`;
-const payload = { commit_id: headSha, event: "COMMENT", body };
-
-try {
-  await rest(reviewsPath, "POST", { ...payload, comments: review.comments });
-} catch (error) {
-  // One bad comment fails the whole review. Posting them singly keeps the rest
-  // as threads, the only thing later runs track, and the verdict still lands.
-  console.error(`::warning::Inline comments rejected: ${error.message}`);
-  const rejected = [];
-  for (const comment of review.comments) {
-    try {
-      await rest(`/repos/${repository}/pulls/${number}/comments`, "POST", {
-        ...comment,
-        commit_id: headSha,
-      });
-    } catch (commentError) {
-      console.error(`::warning::Comment rejected: ${commentError.message}`);
-      rejected.push(comment);
+const rejected = [];
+if (review.comments.length > 0) {
+  try {
+    await rest(`/repos/${repository}/pulls/${number}/reviews`, "POST", {
+      commit_id: headSha,
+      event: "COMMENT",
+      // GitHub requires a body here. The verdict is in the summary comment.
+      body: "New findings are below. The summary is in the comment after this review.",
+      comments: review.comments,
+    });
+  } catch (error) {
+    // One bad comment fails the whole review. Posting them singly keeps the
+    // rest as threads, the only thing later runs track.
+    console.error(`::warning::Inline comments rejected: ${error.message}`);
+    for (const comment of review.comments) {
+      try {
+        await rest(`/repos/${repository}/pulls/${number}/comments`, "POST", {
+          ...comment,
+          commit_id: headSha,
+        });
+      } catch (commentError) {
+        console.error(`::warning::Comment rejected: ${commentError.message}`);
+        rejected.push(comment);
+      }
     }
   }
-  const inline = rejected.map(
-    ({ path, line, body: comment }) => `**\`${path}:${line}\`**\n\n${comment}`
-  );
-  await rest(reviewsPath, "POST", {
-    ...payload,
-    body: [body, ...inline].join("\n\n---\n\n"),
-  });
 }
 
-// The review is out, so a leftover status comment must not fail this job.
+const inline = rejected.map(
+  ({ path, line, body: comment }) => `**\`${path}:${line}\`**\n\n${comment}`
+);
+const summary = [review.render(resolved, failedToResolve), ...inline].join(
+  "\n\n---\n\n"
+);
+
+// The new summary goes first, so a failure never leaves the PR without one.
+const outdated = await fetchOutdatedComments(repository, number);
+await postComment(repository, number, summary);
+
+// The summary is out, so leftover comments must not fail this job.
 try {
-  await clearProgress(repository, number);
+  await deleteComments(repository, outdated);
 } catch (error) {
-  console.error(`::warning::Could not remove status comment: ${error.message}`);
+  console.error(`::warning::Could not remove old comments: ${error.message}`);
 }

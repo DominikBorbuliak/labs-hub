@@ -136,16 +136,17 @@ There are currently no automated tests in this repository.
 branch in this repository when they are opened, reopened, marked ready for
 review or pushed to. It is a reusable workflow called by `ci.yml`, which
 holds these conditions and runs it only after `Build & Lint` passes, so failing
-PRs spend no plan usage. It posts one review with inline comments and a summary
-whose verdict is 🟢 Approval recommended, 🟡 Changes recommended or 🔵 Needs a
-closer look.
+PRs spend no plan usage. New findings are posted as a review with inline
+comments. A regular PR comment holds the summary, whose verdict is 🟢 Approval
+recommended, 🟡 Changes recommended or 🔵 Needs a closer look.
 
 - The `Review` job runs Claude read-only and returns structured JSON (see
   `schema.json`). The `Publish` job then uses plain code to resolve threads and
-  post the review. Keep Claude away from write access to GitHub.
+  post the results. Keep Claude away from write access to GitHub.
 - The `Announce` job posts a status comment while the review runs. `Publish`
-  deletes it once the review is posted, and `Finish` handles failures and
-  cancellations.
+  replaces it and the previous summary with a new summary, so a PR has one
+  summary at a time and each review still notifies people. `Finish` handles
+  failures and cancellations.
 - There is no stored state: each run rebuilds it from the PR's review threads,
   whose comments carry a hidden marker.
 - It authenticates with the `CLAUDE_CODE_OAUTH_TOKEN` secret, a one-year token
