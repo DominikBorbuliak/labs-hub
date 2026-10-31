@@ -150,8 +150,8 @@ recommended, 🟡 Changes recommended or 🔵 Needs a closer look.
   with inline comments pings them.
 - The summary title shows the review round. Only finished reviews count, and
   the count is kept in a hidden marker in the comment.
-- There is no stored state: each run rebuilds it from the PR's review threads,
-  whose comments carry a hidden marker.
+- Apart from the round count, there is no stored state: each run rebuilds it
+  from the PR's review threads, whose comments carry a hidden marker.
 - It authenticates with the `CLAUDE_CODE_OAUTH_TOKEN` secret, a one-year token
   from `claude setup-token` that uses a Claude subscription. Do not add
   `ANTHROPIC_API_KEY` to this workflow, as it would take precedence and bill the
