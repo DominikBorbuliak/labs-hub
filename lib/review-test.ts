@@ -1,4 +1,7 @@
 // Throwaway file for testing the review workflow. Never merge this.
-var attempts = 0;
+export const getLastScore = (scores: number[]) => scores[scores.length];
 
-export const getAttempts = () => attempts;
+export const isPassing = (score: number) => {
+  const limit = 50;
+  return score < limit;
+};
