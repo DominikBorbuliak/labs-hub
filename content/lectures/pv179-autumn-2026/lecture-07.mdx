@@ -198,14 +198,14 @@ After `dotnet ef migrations add AddIdentity`, the migration creates these tables
 
 ## Registration
 
-There are several ways to register Identity, each one adds a bit more on top of the previous:
+There are several ways to register Identity. Each one is a different preset, the table shows what it adds compared to `AddIdentityCore`:
 
-| Method                             | Registers                                                                             | Typical use              |
-| ---------------------------------- | ------------------------------------------------------------------------------------- | ------------------------ |
-| `AddIdentityCore<TUser>()`         | `UserManager`, password hasher, validators. **No** sign-in, no cookie, no roles       | Fully custom setups      |
-| `AddIdentity<TUser, TRole>()`      | + `SignInManager`, `RoleManager`, **cookie** authentication                           | MVC, Razor Pages         |
-| `AddDefaultIdentity<TUser>()`      | + ready-made login/register **Razor UI** (package `Microsoft.AspNetCore.Identity.UI`) | MVC with generated pages |
-| `AddIdentityApiEndpoints<TUser>()` | + **cookie and bearer token** authentication, endpoints for `MapIdentityApi`          | **SPA / Web API**        |
+| Method                             | Registers                                                                                                                    | Typical use              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `AddIdentityCore<TUser>()`         | `UserManager`, password hasher, validators. **No** sign-in, no cookie, no roles                                              | Fully custom setups      |
+| `AddIdentity<TUser, TRole>()`      | + `SignInManager`, `RoleManager`, **cookie** authentication                                                                  | MVC, Razor Pages         |
+| `AddDefaultIdentity<TUser>()`      | + `SignInManager`, **cookie** authentication, ready-made **Razor UI** (package `Microsoft.AspNetCore.Identity.UI`), no roles | MVC with generated pages |
+| `AddIdentityApiEndpoints<TUser>()` | + `SignInManager`, **cookie and bearer token** authentication, endpoints for `MapIdentityApi`, no roles                      | **SPA / Web API**        |
 
 For our Web API, `AddIdentityApiEndpoints` is the best fit:
 
@@ -410,14 +410,12 @@ The cookies and tokens are encrypted with **Data Protection keys**. By default, 
 
 ## Creating Roles and an Admin
 
-Roles are managed with `RoleManager`, users are assigned to them with `UserManager`. A typical place to create them is a seed at startup:
+Roles are managed with `RoleManager`, users are assigned to them with `UserManager`. A typical place to create them is a seed at startup. The roles are needed in every environment, the admin account only for development:
 
 ```csharp
-if (app.Environment.IsDevelopment())
+using (var scope = app.Services.CreateScope())
 {
-    using var scope = app.Services.CreateScope();
     var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<int>>>();
-    var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
 
     foreach (var role in new[] { "Admin", "Customer" })
     {
@@ -427,17 +425,22 @@ if (app.Environment.IsDevelopment())
         }
     }
 
-    if (await userManager.FindByNameAsync("admin@example.com") is null)
+    if (app.Environment.IsDevelopment())
     {
-        var admin = new AppUser { UserName = "admin@example.com", Email = "admin@example.com" };
-        var result = await userManager.CreateAsync(admin, app.Configuration["Seed:AdminPassword"]!);
-        if (!result.Succeeded)
-        {
-            throw new InvalidOperationException(
-                $"Seeding the admin failed: {string.Join(", ", result.Errors.Select(e => e.Description))}");
-        }
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
 
-        await userManager.AddToRoleAsync(admin, "Admin");
+        if (await userManager.FindByNameAsync("admin@example.com") is null)
+        {
+            var admin = new AppUser { UserName = "admin@example.com", Email = "admin@example.com" };
+            var result = await userManager.CreateAsync(admin, app.Configuration["Seed:AdminPassword"]!);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Seeding the admin failed: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+            }
+
+            await userManager.AddToRoleAsync(admin, "Admin");
+        }
     }
 }
 ```
