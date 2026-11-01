@@ -1,14 +1,686 @@
 ---
-title: "Continuous Integration with Docker Deployment"
-description: "Setting up Continuous Integration pipelines, containerizing applications with Docker, and implementing automated deployment workflows."
+title: "ASP.NET Core Identity"
+description: "Introducing SPA and MVC applications, understanding how ASP.NET Core Identity works under the hood (managers, stores, password hashing, login, cookies and tokens), securing endpoints with roles, and using Identity together with repositories and the business layer."
 order: 7
 recommendedStudyFrom: "2026-11-02"
 recommendedStudyTo: "2026-11-08"
 availableFrom: "2026-11-02"
 tags:
-  - ci
-  - docker
+  - dotnet-identity
+  - authentication
+  - authorization
+  - spa
+  - mvc
+  - repository
 ---
 
+# Agenda
+
+1. Authentication vs Authorization
+2. SPA vs MVC
+3. ASP.NET Core Identity
+4. Setting Up Identity
+5. How Identity Works
+6. Roles and Authorization
+7. Identity and Repositories
+8. Today's Assignment
+
+# Authentication vs Authorization
+
+Two words that are easy to mix up, but answer two different questions:
+
+- **Authentication (AuthN)**: _who are you?_ The app verifies the identity of the user (e.g. with a password) and from then on recognizes them on every request
+- **Authorization (AuthZ)**: _what are you allowed to do?_ The app decides whether the **already known** user may access a resource (e.g. only admins can delete orders)
+
+Authentication always comes first. That's why `UseAuthentication()` is registered **before** `UseAuthorization()` in the pipeline.
+
+| Status code        | Meaning                                                  |
+| ------------------ | -------------------------------------------------------- |
+| `401 Unauthorized` | We **don't know who you are** (not logged in, bad token) |
+| `403 Forbidden`    | We know who you are, but you're **not allowed** to do it |
+
+> [!NOTE]
+> Yes, `401 Unauthorized` is badly named. It really means _unauthenticated_.
+
+In ASP.NET Core, the result of authentication is a **`ClaimsPrincipal`** available as `HttpContext.User`. A **claim** is one piece of information about the user (id, name, email, role, ...). Remember `HttpCurrentUser` from lecture 5, which read `ClaimTypes.NameIdentifier` and `ClaimTypes.Role`? Today we'll see **where these claims come from**.
+
+# SPA vs MVC
+
+Before we look at Identity, a quick look at the two common kinds of web applications.
+
+## MVC (Server-Rendered)
+
+In an **MVC** (Model-View-Controller) application, the **server renders the HTML**. The controller loads the data (model), passes it to a Razor **view**, and the browser receives a complete page. Every click on a link or form submission sends a request and the browser loads a **whole new page**.
+
+```plain
+Browser ──GET /products──────────────► Controller ──► Model
+        ◄──────────── full HTML page ── View (Razor) ◄─┘
+
+Browser ──POST /orders (form)────────► Controller
+        ◄──────── 302 redirect ──────── (Post/Redirect/Get)
+```
+
+Examples: ASP.NET Core MVC, Razor Pages, Django, Ruby on Rails.
+
+## SPA (Single-Page Application)
+
+In an **SPA**, the browser downloads a **JavaScript application once**. From then on, the app renders the UI itself and only exchanges **JSON** with a **Web API**. The page is never fully reloaded, the routing happens in the browser.
+
+```plain
+Browser ──GET /──────────────────────► static files (index.html, app.js)
+        ◄──────────────── JS app ─────
+
+JS app  ──GET /api/products──────────► Web API (our controllers)
+        ◄──────────────── JSON ───────
+```
+
+Examples: React, Angular, Vue, Blazor WebAssembly. Mobile apps work the same way from the server's point of view: they also just call the API.
+
+# ASP.NET Core Identity
+
+**ASP.NET Core Identity** is a membership system: a ready-made, well-tested implementation of everything around **user accounts**. Writing this yourself is easy to get wrong, and security bugs here are the worst kind of bugs.
+
+## What It Gives You
+
+- **User accounts**: registration, user names, emails, profile data
+- **Passwords**: secure hashing, password rules (length, digits, ...), password reset
+- **Sign-in**: checking credentials and issuing a **cookie** or a **bearer token**
+- **Lockout**: blocking an account after too many failed login attempts
+- **Roles and claims**: data for authorization
+- **Tokens**: for email confirmation, password reset, change of email
+- **Two-factor authentication** (authenticator apps, recovery codes) and **external logins** (Google, Microsoft, GitHub, ...)
+
+## What It Is Not
+
+- **Not an identity provider / OAuth server.** Identity manages users of **your** application. If several applications or services should share one login ("Sign in with ..."), you need an **OpenID Connect** server (e.g. Keycloak, Microsoft Entra ID, Duende IdentityServer, OpenIddict)
+- **Not the authentication middleware itself.** Identity builds on top of ASP.NET Core's **authentication handlers** (cookie, bearer token). It decides _who_ the user is and creates the `ClaimsPrincipal`; the handlers then take care of the cookie or token on every request
+- **Not authorization.** `[Authorize]`, roles and policies are part of ASP.NET Core itself. Identity only **provides the data** (roles, claims) they use
+
+## Architecture: Managers and Stores
+
+Identity is split into two kinds of classes, which is the key to understanding it (and to using it with repositories at the end of this lecture):
+
+```plain
+┌───────────────────────────────────────────────────────────────┐
+│ Your code (controllers, services)                             │
+└───────────────────────────────┬───────────────────────────────┘
+                                ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Managers: the LOGIC                                           │
+│   SignInManager<TUser>  ── login, logout, lockout, 2FA, cookie │
+│   UserManager<TUser>    ── create user, hash and validate      │
+│                            password, roles, claims, tokens     │
+│   RoleManager<TRole>    ── create and manage roles             │
+└───────────────────────────────┬───────────────────────────────┘
+                                │ IUserStore<TUser>, IRoleStore<TRole>, ...
+                                ▼
+┌───────────────────────────────────────────────────────────────┐
+│ Stores: the PERSISTENCE (no logic, just load and save)        │
+│   default: UserStore / RoleStore on top of EF Core            │
+└───────────────────────────────┬───────────────────────────────┘
+                                ▼
+                     IdentityDbContext ──► database
+```
+
+- **Managers** contain all the logic: hashing passwords, validating them, normalizing names, generating tokens, counting failed logins. You always work with the managers
+- **Stores** are a **data access abstraction**: a set of interfaces (`IUserStore<TUser>`, `IUserPasswordStore<TUser>`, `IUserRoleStore<TUser>`, ...) with methods like `CreateAsync`, `FindByNameAsync` or `SetPasswordHashAsync`. They know nothing about passwords or rules, they just store values
+- The default stores use **EF Core**, but you can replace them with your own
+
+> [!NOTE]
+> Sounds familiar? It's the same idea as our layers: the managers are a "business layer" for user accounts, and the stores are their "repositories".
+
+# Setting Up Identity
+
+## Packages
+
+```bash
+# Data Access Layer: entities, IdentityDbContext and the EF Core stores
+dotnet add package Microsoft.AspNetCore.Identity.EntityFrameworkCore
+```
+
+The rest (`SignInManager`, `AddIdentity...` methods) is already part of the ASP.NET Core shared framework in the Web API project.
+
+## The User Entity
+
+Identity provides a base class `IdentityUser<TKey>` with the common properties (`UserName`, `Email`, `PasswordHash`, `SecurityStamp`, `LockoutEnd`, ...). Inherit from it and add your own properties:
+
+```csharp
+// Data Access Layer
+public class AppUser : IdentityUser<int>
+{
+    public string FirstName { get; set; } = string.Empty;
+    public string LastName { get; set; } = string.Empty;
+
+    public ICollection<Order> Orders { get; set; } = [];
+}
+```
+
+> [!NOTE]
+> The non-generic `IdentityUser` uses a `string` key (a GUID stored as a string). Other key types are possible too: use the generic `IdentityUser<TKey>` and `IdentityRole<TKey>`, e.g. `IdentityUser<int>` for `int` keys, as we do here.
+
+## The DbContext
+
+Inherit from `IdentityDbContext` instead of `DbContext`. It adds the `DbSet`s and the configuration for all the Identity tables:
+
+```csharp
+public class AppDbContext(DbContextOptions<AppDbContext> options)
+    : IdentityDbContext<AppUser, IdentityRole<int>, int>(options)
+{
+    public DbSet<Product> Products => Set<Product>();
+    public DbSet<Order> Orders => Set<Order>();
+
+    protected override void OnModelCreating(ModelBuilder modelBuilder)
+    {
+        // Must be called FIRST, it configures the Identity tables (keys, indexes, ...)
+        base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<Order>()
+            .HasOne(o => o.Customer)
+            .WithMany(u => u.Orders)
+            .HasForeignKey(o => o.CustomerId);
+    }
+}
+```
+
 > [!WARNING]
-> Work in progress.
+> If you forget `base.OnModelCreating(modelBuilder)`, creating a migration fails with errors like _"The entity type `IdentityUserLogin<int>` requires a primary key to be defined"_.
+
+After `dotnet ef migrations add AddIdentity`, the migration creates these tables:
+
+| Table              | Contains                                                     |
+| ------------------ | ------------------------------------------------------------ |
+| `AspNetUsers`      | Users (`AppUser`, including your own columns)                |
+| `AspNetRoles`      | Roles                                                        |
+| `AspNetUserRoles`  | Which user has which role (many-to-many)                     |
+| `AspNetUserClaims` | Extra claims assigned to a user                              |
+| `AspNetRoleClaims` | Claims assigned to a role (every user in the role gets them) |
+| `AspNetUserLogins` | External logins (Google, Microsoft, ...)                     |
+| `AspNetUserTokens` | Stored tokens (e.g. authenticator key for 2FA)               |
+
+## Registration
+
+There are several ways to register Identity. Each one is a different preset, the table shows what it adds compared to `AddIdentityCore`:
+
+| Method                             | Registers                                                                                                                    | Typical use              |
+| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------ |
+| `AddIdentityCore<TUser>()`         | `UserManager`, password hasher, validators. **No** sign-in, no cookie, no roles                                              | Fully custom setups      |
+| `AddIdentity<TUser, TRole>()`      | + `SignInManager`, `RoleManager`, **cookie** authentication                                                                  | MVC, Razor Pages         |
+| `AddDefaultIdentity<TUser>()`      | + `SignInManager`, **cookie** authentication, ready-made **Razor UI** (package `Microsoft.AspNetCore.Identity.UI`), no roles | MVC with generated pages |
+| `AddIdentityApiEndpoints<TUser>()` | + `SignInManager`, **cookie and bearer token** authentication, endpoints for `MapIdentityApi`, no roles                      | **SPA / Web API**        |
+
+For our Web API, `AddIdentityApiEndpoints` is the best fit:
+
+```csharp
+builder.Services
+    .AddIdentityApiEndpoints<AppUser>(options =>
+    {
+        options.Password.RequiredLength = 8;
+        options.User.RequireUniqueEmail = true;
+        options.Lockout.MaxFailedAccessAttempts = 5;
+        options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
+    })
+    .AddRoles<IdentityRole<int>>()              // before AddEntityFrameworkStores!
+    .AddEntityFrameworkStores<AppDbContext>();  // use EF Core stores on top of AppDbContext
+
+builder.Services.AddAuthorization();
+
+var app = builder.Build();
+
+// ...
+app.UseAuthentication();
+app.UseAuthorization();
+
+app.MapGroup("/api/auth").MapIdentityApi<AppUser>();
+app.MapControllers();
+```
+
+> [!WARNING]
+> `AddEntityFrameworkStores` registers a role store only if roles are already known. Call **`AddRoles` before it**, otherwise `RoleManager` can't be resolved.
+
+`MapIdentityApi` maps ready-made endpoints, e.g.:
+
+| Endpoint                        | What it does                                         |
+| ------------------------------- | ---------------------------------------------------- |
+| `POST /api/auth/register`       | Creates a user (`{ "email": ..., "password": ... }`) |
+| `POST /api/auth/login`          | Logs in, returns a token or sets a cookie            |
+| `POST /api/auth/refresh`        | Exchanges a refresh token for a new access token     |
+| `POST /api/auth/forgotPassword` | Sends a password reset code by email                 |
+| `GET /api/auth/manage/info`     | Info about the logged-in user                        |
+
+```http
+POST /api/auth/login
+Content-Type: application/json
+
+{ "email": "alice@example.com", "password": "Passw0rd!" }
+```
+
+```json
+{
+  "tokenType": "Bearer",
+  "accessToken": "CfDJ8...",
+  "expiresIn": 3600,
+  "refreshToken": "CfDJ8..."
+}
+```
+
+With `POST /api/auth/login?useCookies=true`, the response body is empty and the server sets a cookie instead.
+
+> [!TIP]
+> Copy the `accessToken` into the **Authorize** dialog of Swagger UI, and Swagger sends it in the `Authorization: Bearer ...` header of every request.
+
+> [!NOTE]
+> `MapIdentityApi` is opinionated: registration takes only an email and a password (the email is used as the user name), and there is no logout endpoint. If you need more (e.g. `FirstName` during registration, assigning a role), write your **own controller**. We'll do that below.
+
+# How Identity Works
+
+Let's look at what actually happens inside Identity during registration, login, and every request after it.
+
+## Registration: `UserManager.CreateAsync`
+
+```csharp
+var user = new AppUser { UserName = "alice", Email = "alice@example.com" };
+IdentityResult result = await userManager.CreateAsync(user, "Passw0rd!");
+```
+
+Inside `CreateAsync`, the `UserManager`:
+
+1. **Validates the password** with all registered `IPasswordValidator`s (length, digits, upper/lower case, ... according to `options.Password`)
+2. **Hashes the password** with `IPasswordHasher` and stores the hash via `IUserPasswordStore.SetPasswordHashAsync`
+3. Generates a new random **`SecurityStamp`**
+4. **Validates the user** with `IUserValidator`s (allowed characters in the user name, unique user name, unique email if required)
+5. **Normalizes** the user name and email (`alice` → `ALICE`) into `NormalizedUserName` / `NormalizedEmail`. All lookups use these columns, so the search is **case-insensitive** and can use an index
+6. Calls **`IUserStore.CreateAsync`**, which (in the EF Core store) adds the user and **calls `SaveChangesAsync` immediately**
+
+Identity methods **don't throw** for expected failures (weak password, duplicate user name). They return an **`IdentityResult`**:
+
+```csharp
+if (!result.Succeeded)
+{
+    foreach (var error in result.Errors)
+    {
+        // e.g. "PasswordRequiresDigit": "Passwords must have at least one digit ('0'-'9')."
+        Console.Error.WriteLine($"{error.Code}: {error.Description}");
+    }
+}
+```
+
+> [!WARNING]
+> Always check `result.Succeeded`. It's easy to forget, and the code then happily continues with a user that was never created.
+
+## Password Hashing
+
+Passwords are **never stored**, only their **hash**. The default `PasswordHasher` uses **PBKDF2** with HMAC-SHA512, a random 128-bit **salt** and **100 000 iterations** (since .NET 7). The result in the `PasswordHash` column looks like this:
+
+```plain
+AQAAAAIAAYagAAAAEJ0... (base64)
+│
+└── format version | algorithm (HMAC-SHA512) | iteration count | salt | hash
+```
+
+When the user logs in, the hasher reads the algorithm, iterations and salt **from the stored value**, hashes the entered password the same way and compares the results. If the stored hash uses older (weaker) parameters, it returns `SuccessRehashNeeded` and Identity **re-hashes the password automatically**, so hashes get upgraded as users log in.
+
+<Spoiler label="Quiz: why not just store SHA-256(password)? (Double-click to reveal)">
+
+- **Too fast**: SHA-256 is designed to be fast. A GPU can compute **billions** of hashes per second, so short passwords can be brute-forced quickly. PBKDF2 with 100 000 iterations is deliberately slow
+- **No salt**: the same password always has the same hash, so an attacker can use precomputed **rainbow tables** and immediately sees which users share a password. The random salt makes every hash unique
+
+</Spoiler>
+
+## Login: `SignInManager.PasswordSignInAsync`
+
+```csharp
+var result = await signInManager.PasswordSignInAsync(
+    "alice", "Passw0rd!", isPersistent: false, lockoutOnFailure: true);
+```
+
+```plain
+PasswordSignInAsync("alice", password)
+ │
+ ├─► UserManager.FindByNameAsync      normalize "alice" → "ALICE", store lookup
+ │                                    not found? ─► Failed
+ ├─► pre-sign-in checks               email/account confirmed (if required)? ─► NotAllowed
+ │                                    locked out? ─► LockedOut
+ ├─► UserManager.CheckPasswordAsync   verify hash (and re-hash if needed)
+ │       ├── wrong:   AccessFailedCount++ (lockout after 5 attempts) ─► Failed
+ │       └── correct: AccessFailedCount = 0
+ ├─► two-factor enabled?              ─► RequiresTwoFactor
+ │
+ └─► SignInAsync
+        ├── IUserClaimsPrincipalFactory creates ClaimsPrincipal (id, name, email, roles, ...)
+        └── HttpContext.SignInAsync(scheme, principal)
+               ├── cookie scheme: Set-Cookie: .AspNetCore.Identity.Application=CfDJ8...
+               └── bearer scheme: writes { accessToken, refreshToken, ... } to the response
+```
+
+The result is a `SignInResult` with `Succeeded`, `IsLockedOut`, `IsNotAllowed` and `RequiresTwoFactor`.
+
+> [!NOTE]
+> Lockout only works with `lockoutOnFailure: true`. With `false` (the default in many examples), failed attempts are **not counted** and the account can be brute-forced.
+
+> [!IMPORTANT]
+> Don't tell the user **why** the login failed (_"user doesn't exist"_ vs _"wrong password"_). Otherwise an attacker learns which accounts exist. Return the same `401` for both.
+
+## The Claims
+
+The `ClaimsPrincipal` is created by `UserClaimsPrincipalFactory`. For our `AppUser`, it contains:
+
+| Claim type                         | Value                                    |
+| ---------------------------------- | ---------------------------------------- |
+| `ClaimTypes.NameIdentifier`        | User id (`42`)                           |
+| `ClaimTypes.Name`                  | User name (`alice`)                      |
+| `ClaimTypes.Email`                 | Email                                    |
+| `AspNet.Identity.SecurityStamp`    | Current security stamp                   |
+| `ClaimTypes.Role`                  | One claim per role (`Admin`, `Customer`) |
+| (anything from `AspNetUserClaims`) | Custom claims of the user                |
+
+This is exactly what `HttpCurrentUser` reads. In a controller, you can also get the whole entity from the database:
+
+```csharp
+var user = await userManager.GetUserAsync(User); // looks up the NameIdentifier claim
+```
+
+## Every Following Request
+
+The cookie (or bearer token) is **not** a random session id that points to a database row. It **contains the whole `ClaimsPrincipal`**, serialized and **encrypted** with ASP.NET Core **Data Protection**:
+
+```plain
+Request + Cookie ──► UseAuthentication()
+                       │  decrypt the cookie with Data Protection keys
+                       │  deserialize ClaimsPrincipal
+                       ▼
+                     HttpContext.User = principal   (no database query!)
+                       ▼
+                     UseAuthorization() ──► [Authorize] checks ──► controller
+```
+
+> [!NOTE]
+> The tokens returned by `MapIdentityApi` are **not JWTs**. They're encrypted with Data Protection in the same way as the cookie, so only the same application can read them. If other services need to validate your tokens, use **JWT bearer** authentication (`Microsoft.AspNetCore.Authentication.JwtBearer`) or an OpenID Connect server.
+
+## Security Stamp
+
+The **`SecurityStamp`** is a random value that Identity **changes** whenever something security-relevant happens (e.g. the password changes). Identity re-checks the stamp in the cookie against the database **every 30 minutes**, so changing it **signs the user out on all devices**.
+
+## Data Protection Keys
+
+The cookies and tokens are encrypted with **Data Protection keys**. By default, they're stored in the user profile (e.g. `~/.aspnet/DataProtection-Keys` on Linux, `%LOCALAPPDATA%\ASP.NET\DataProtection-Keys` on Windows).
+
+> [!WARNING]
+> If the keys are lost (e.g. a Docker container is recreated) or each server instance has different keys, **all existing cookies and tokens become invalid** and every user is logged out. In production, persist the keys to a shared location, e.g. the database with `PersistKeysToDbContext` (package `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore`).
+
+# Roles and Authorization
+
+## Creating Roles and an Admin
+
+Roles are managed with `RoleManager`, users are assigned to them with `UserManager`. A typical place to create them is a seed at startup. The roles are needed in every environment, the admin account only for development:
+
+```csharp
+using (var scope = app.Services.CreateScope())
+{
+    var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole<int>>>();
+
+    foreach (var role in new[] { "Admin", "Customer" })
+    {
+        if (!await roleManager.RoleExistsAsync(role))
+        {
+            await roleManager.CreateAsync(new IdentityRole<int>(role));
+        }
+    }
+
+    if (app.Environment.IsDevelopment())
+    {
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<AppUser>>();
+
+        if (await userManager.FindByNameAsync("admin@example.com") is null)
+        {
+            var admin = new AppUser { UserName = "admin@example.com", Email = "admin@example.com" };
+            var result = await userManager.CreateAsync(admin, app.Configuration["Seed:AdminPassword"]!);
+            if (!result.Succeeded)
+            {
+                throw new InvalidOperationException(
+                    $"Seeding the admin failed: {string.Join(", ", result.Errors.Select(e => e.Description))}");
+            }
+
+            await userManager.AddToRoleAsync(admin, "Admin");
+        }
+    }
+}
+```
+
+> [!TIP]
+> Keep the admin password out of the repository: put `Seed:AdminPassword` into **user secrets**.
+
+## `[Authorize]`
+
+```csharp
+[ApiController]
+[Authorize]                                  // every action requires a logged-in user
+[Route("api/orders")]
+public class OrdersController(IOrderFacade orderFacade, ICurrentUser currentUser) : ControllerBase
+{
+    [HttpGet("public-stats")]
+    [AllowAnonymous]                         // ... except this one
+    public IActionResult GetPublicStats() => Ok();
+
+    [HttpDelete("{id:int}")]
+    [Authorize(Roles = "Admin")]             // only users in the Admin role
+    public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
+    {
+        await orderFacade.DeleteOrderAsync(id, cancellationToken);
+        return NoContent();
+    }
+}
+```
+
+- Not logged in → **`401`**, logged in without the `Admin` role → **`403`**
+- `[Authorize(Roles = "Admin,Manager")]` means **Admin OR Manager**. Two separate `[Authorize]` attributes mean **AND**
+
+> [!NOTE]
+> In MVC, the Identity cookie answers `401` / `403` with a **redirect** to `/Account/Login` or `/Account/AccessDenied` instead. Since .NET 10, it returns plain `401` / `403` for **API endpoints** (e.g. controllers with `[ApiController]`). In older versions, you had to override `OnRedirectToLogin` and `OnRedirectToAccessDenied` in `ConfigureApplicationCookie` to get them.
+
+# Identity and Repositories
+
+So far we've worked with `UserManager` and `AppDbContext` directly. How does it fit into our layers: **repositories**, the **Unit of Work** and the **business layer**?
+
+## Reading Users: Through a Repository
+
+`AppUser` is a normal entity in `AppDbContext`, so reading it through a repository is fine. That's where the queries with `Include`s belong:
+
+```csharp
+// Data Access Layer
+public interface IUserRepository : IRepository<AppUser>
+{
+    Task<AppUser?> GetWithOrdersAsync(int id, CancellationToken cancellationToken = default);
+}
+
+public class UserRepository(AppDbContext context) : Repository<AppUser>(context), IUserRepository
+{
+    public async Task<AppUser?> GetWithOrdersAsync(int id, CancellationToken cancellationToken = default)
+        => await DbSet
+            .Include(u => u.Orders)
+            .FirstOrDefaultAsync(u => u.Id == id, cancellationToken);
+}
+```
+
+```csharp
+public interface IUnitOfWork
+{
+    IUserRepository Users { get; }
+    IRepository<Product> Products { get; }
+    IRepository<Order> Orders { get; }
+
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+}
+```
+
+## Writing Users: Through `UserManager`
+
+Creating users, changing passwords, emails, user names, roles or lockout must **always** go through `UserManager`:
+
+```csharp
+// ❌ Compiles, but creates a broken user
+unitOfWork.Users.Add(new AppUser { UserName = "bob", Email = "bob@example.com" });
+await unitOfWork.SaveChangesAsync(cancellationToken);
+```
+
+<Spoiler label="Quiz: what exactly is wrong with this user? (Double-click to reveal)">
+
+None of the `UserManager` steps from the registration ran:
+
+- **`NormalizedUserName` and `NormalizedEmail` are `null`**, so `FindByNameAsync("bob")` never finds him and he can never log in
+- **No password hash**, and no password validation
+- **No `SecurityStamp`**, so security stamp validation fails
+- **No user validation**: a duplicate user name or invalid characters get through
+
+</Spoiler>
+
+> [!NOTE]
+> Changing **your own** profile properties (`FirstName`, `LastName`) through the Unit of Work is fine. The rule only applies to the properties that Identity manages.
+
+## Using `UserManager` in the Business Layer
+
+`UserManager` doesn't depend on ASP.NET Core, so a business layer service can use it, and the controller stays thin:
+
+```csharp
+// Business Layer
+public record RegisterDto(
+    [Required, EmailAddress] string Email,
+    [Required] string Password,
+    [Required, MaxLength(100)] string FirstName,
+    [Required, MaxLength(100)] string LastName);
+
+public interface IAccountService
+{
+    Task<IdentityResult> RegisterAsync(RegisterDto dto);
+}
+```
+
+```csharp
+// Presentation Layer
+[ApiController]
+[Route("api/account")]
+public class AccountController(IAccountService accountService) : ControllerBase
+{
+    [HttpPost("register")]
+    public async Task<IActionResult> Register(RegisterDto dto)
+    {
+        var result = await accountService.RegisterAsync(dto);
+        if (!result.Succeeded)
+        {
+            foreach (var error in result.Errors)
+            {
+                ModelState.AddModelError(error.Code, error.Description);
+            }
+
+            return ValidationProblem(ModelState);
+        }
+
+        return NoContent();
+    }
+}
+```
+
+```csharp
+// Business Layer
+public class AccountService(UserManager<AppUser> userManager) : IAccountService
+{
+    public async Task<IdentityResult> RegisterAsync(RegisterDto dto)
+    {
+        var user = new AppUser
+        {
+            UserName = dto.Email,
+            Email = dto.Email,
+            FirstName = dto.FirstName,
+            LastName = dto.LastName,
+        };
+
+        var result = await userManager.CreateAsync(user, dto.Password);
+        if (!result.Succeeded)
+        {
+            return result;
+        }
+
+        return await userManager.AddToRoleAsync(user, "Customer");
+    }
+}
+```
+
+## Login: In the Presentation Layer
+
+`SignInManager` works with `HttpContext` (cookies, the response body for tokens), so login and logout stay in the **presentation layer**. A custom login endpoint that can issue both a cookie and a bearer token, the same way `MapIdentityApi` does it:
+
+```csharp
+public record LoginDto([Required] string Email, [Required] string Password);
+
+[ApiController]
+[Route("api/account")]
+public class AccountController(IAccountService accountService, SignInManager<AppUser> signInManager)
+    : ControllerBase
+{
+    // ... Register from above
+
+    [HttpPost("login")]
+    public async Task<IActionResult> Login(LoginDto dto, [FromQuery] bool useCookies = false)
+    {
+        // Which authentication handler should "sign in" the principal
+        signInManager.AuthenticationScheme = useCookies
+            ? IdentityConstants.ApplicationScheme  // Set-Cookie header
+            : IdentityConstants.BearerScheme;      // token in the response body
+
+        var result = await signInManager.PasswordSignInAsync(
+            dto.Email, dto.Password, isPersistent: false, lockoutOnFailure: true);
+
+        if (!result.Succeeded)
+        {
+            return Unauthorized(); // same answer for unknown user, wrong password, lockout
+        }
+
+        // The handler has already written the cookie / token to the response
+        return new EmptyResult();
+    }
+
+    [HttpPost("logout")]
+    [Authorize]
+    public async Task<IActionResult> Logout()
+    {
+        await signInManager.SignOutAsync(); // removes the cookie
+        return NoContent();
+    }
+}
+```
+
+> [!NOTE]
+> Logout only removes the **cookie**. A **bearer token** can't be "deleted" on the server: the client throws it away, and it expires on its own.
+
+> [!TIP]
+> [MS Learn: Introduction to Identity on ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity) · [Identity model customization](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/customize-identity-model) · [Use Identity to secure a Web API backend for SPAs](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-api-authorization)
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-07](https://gitlab.fi.muni.cz/pv179/seminar-07-2026-net-identity)
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Authentication (who are you?) and authorization (what can you do?) distinguished
+
+✓ SPA and MVC basics introduced
+
+✓ Identity's architecture explained: managers contain the logic, stores the persistence
+
+✓ Registration, password hashing, login, claims and cookies/tokens explained step by step
+
+✓ Endpoints secured with `[Authorize]` and roles
+
+✓ Identity combined with repositories and the business layer
+
+✓ Today's assignment downloaded
+
+> [!NOTE]
+> **Next time:** Continuous Integration with Docker Deployment.
+
+> [!IMPORTANT]
+> Any questions?
