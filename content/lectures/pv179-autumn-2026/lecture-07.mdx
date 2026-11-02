@@ -1,6 +1,6 @@
 ---
 title: "ASP.NET Core Identity"
-description: "Introducing SPA and MVC applications, understanding how ASP.NET Core Identity works under the hood (managers, stores, password hashing, login, cookies and tokens), securing endpoints with roles, and using Identity together with repositories and the business layer."
+description: "Introducing SPA and MVC applications, understanding how ASP.NET Core Identity works under the hood (managers, stores, password hashing, login and cookies), securing MVC controllers with roles, and using Identity together with repositories and the business layer."
 order: 7
 recommendedStudyFrom: "2026-11-02"
 recommendedStudyTo: "2026-11-08"
@@ -70,7 +70,7 @@ In an **SPA**, the browser downloads a **JavaScript application once**. From the
 Browser ──GET /──────────────────────► static files (index.html, app.js)
         ◄──────────────── JS app ─────
 
-JS app  ──GET /api/products──────────► Web API (our controllers)
+JS app  ──GET /api/products──────────► Web API
         ◄──────────────── JSON ───────
 ```
 
@@ -138,7 +138,7 @@ Identity is split into two kinds of classes, which is the key to understanding i
 dotnet add package Microsoft.AspNetCore.Identity.EntityFrameworkCore
 ```
 
-The rest (`SignInManager`, `AddIdentity...` methods) is already part of the ASP.NET Core shared framework in the Web API project.
+The rest (`SignInManager`, `AddIdentity...` methods) is already part of the ASP.NET Core shared framework in the web project.
 
 ## The User Entity
 
@@ -208,21 +208,26 @@ There are several ways to register Identity. Each one is a different preset, the
 | `AddDefaultIdentity<TUser>()`      | + `SignInManager`, **cookie** authentication, ready-made **Razor UI** (package `Microsoft.AspNetCore.Identity.UI`), no roles | MVC with generated pages |
 | `AddIdentityApiEndpoints<TUser>()` | + `SignInManager`, **cookie and bearer token** authentication, endpoints for `MapIdentityApi`, no roles                      | **SPA / Web API**        |
 
-For our Web API, `AddIdentityApiEndpoints` is the best fit:
+For MVC, `AddIdentity` is the best fit:
 
 ```csharp
 builder.Services
-    .AddIdentityApiEndpoints<AppUser>(options =>
+    .AddIdentity<AppUser, IdentityRole<int>>(options =>
     {
         options.Password.RequiredLength = 8;
         options.User.RequireUniqueEmail = true;
         options.Lockout.MaxFailedAccessAttempts = 5;
         options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
     })
-    .AddRoles<IdentityRole<int>>()              // before AddEntityFrameworkStores!
-    .AddEntityFrameworkStores<AppDbContext>();  // use EF Core stores on top of AppDbContext
+    .AddEntityFrameworkStores<AppDbContext>(); // use EF Core stores on top of AppDbContext
 
-builder.Services.AddAuthorization();
+builder.Services.ConfigureApplicationCookie(options =>
+{
+    options.LoginPath = "/Account/Login";               // where anonymous users are redirected
+    options.AccessDeniedPath = "/Account/AccessDenied"; // where users without permission are redirected
+});
+
+builder.Services.AddControllersWithViews();
 
 var app = builder.Build();
 
@@ -230,46 +235,13 @@ var app = builder.Build();
 app.UseAuthentication();
 app.UseAuthorization();
 
-app.MapGroup("/api/auth").MapIdentityApi<AppUser>();
-app.MapControllers();
+app.MapControllerRoute(
+    name: "default",
+    pattern: "{controller=Home}/{action=Index}/{id?}");
 ```
-
-> [!WARNING]
-> `AddEntityFrameworkStores` registers a role store only if roles are already known. Call **`AddRoles` before it**, otherwise `RoleManager` can't be resolved.
-
-`MapIdentityApi` maps ready-made endpoints, e.g.:
-
-| Endpoint                        | What it does                                         |
-| ------------------------------- | ---------------------------------------------------- |
-| `POST /api/auth/register`       | Creates a user (`{ "email": ..., "password": ... }`) |
-| `POST /api/auth/login`          | Logs in, returns a token or sets a cookie            |
-| `POST /api/auth/refresh`        | Exchanges a refresh token for a new access token     |
-| `POST /api/auth/forgotPassword` | Sends a password reset code by email                 |
-| `GET /api/auth/manage/info`     | Info about the logged-in user                        |
-
-```http
-POST /api/auth/login
-Content-Type: application/json
-
-{ "email": "alice@example.com", "password": "Passw0rd!" }
-```
-
-```json
-{
-  "tokenType": "Bearer",
-  "accessToken": "CfDJ8...",
-  "expiresIn": 3600,
-  "refreshToken": "CfDJ8..."
-}
-```
-
-With `POST /api/auth/login?useCookies=true`, the response body is empty and the server sets a cookie instead.
-
-> [!TIP]
-> Copy the `accessToken` into the **Authorize** dialog of Swagger UI, and Swagger sends it in the `Authorization: Bearer ...` header of every request.
 
 > [!NOTE]
-> `MapIdentityApi` is opinionated: registration takes only an email and a password (the email is used as the user name), and there is no logout endpoint. If you need more (e.g. `FirstName` during registration, assigning a role), write your **own controller**. We'll do that below.
+> `AddIdentity` only registers the services and the cookie. There are **no ready-made pages**: you write the `AccountController` and its views yourself (see below), or use `AddDefaultIdentity` with the generated Razor UI.
 
 # How Identity Works
 
@@ -319,13 +291,6 @@ AQAAAAIAAYagAAAAEJ0... (base64)
 
 When the user logs in, the hasher reads the algorithm, iterations and salt **from the stored value**, hashes the entered password the same way and compares the results. If the stored hash uses older (weaker) parameters, it returns `SuccessRehashNeeded` and Identity **re-hashes the password automatically**, so hashes get upgraded as users log in.
 
-<Spoiler label="Quiz: why not just store SHA-256(password)? (Double-click to reveal)">
-
-- **Too fast**: SHA-256 is designed to be fast. A GPU can compute **billions** of hashes per second, so short passwords can be brute-forced quickly. PBKDF2 with 100 000 iterations is deliberately slow
-- **No salt**: the same password always has the same hash, so an attacker can use precomputed **rainbow tables** and immediately sees which users share a password. The random salt makes every hash unique
-
-</Spoiler>
-
 ## Login: `SignInManager.PasswordSignInAsync`
 
 ```csharp
@@ -348,8 +313,7 @@ PasswordSignInAsync("alice", password)
  └─► SignInAsync
         ├── IUserClaimsPrincipalFactory creates ClaimsPrincipal (id, name, email, roles, ...)
         └── HttpContext.SignInAsync(scheme, principal)
-               ├── cookie scheme: Set-Cookie: .AspNetCore.Identity.Application=CfDJ8...
-               └── bearer scheme: writes { accessToken, refreshToken, ... } to the response
+               └── Set-Cookie: .AspNetCore.Identity.Application=CfDJ8...
 ```
 
 The result is a `SignInResult` with `Succeeded`, `IsLockedOut`, `IsNotAllowed` and `RequiresTwoFactor`.
@@ -358,7 +322,7 @@ The result is a `SignInResult` with `Succeeded`, `IsLockedOut`, `IsNotAllowed` a
 > Lockout only works with `lockoutOnFailure: true`. With `false` (the default in many examples), failed attempts are **not counted** and the account can be brute-forced.
 
 > [!IMPORTANT]
-> Don't tell the user **why** the login failed (_"user doesn't exist"_ vs _"wrong password"_). Otherwise an attacker learns which accounts exist. Return the same `401` for both.
+> Don't tell the user **why** the login failed (_"user doesn't exist"_ vs _"wrong password"_). Otherwise an attacker learns which accounts exist. Show the same message (_"Invalid login attempt."_) for both.
 
 ## The Claims
 
@@ -381,7 +345,7 @@ var user = await userManager.GetUserAsync(User); // looks up the NameIdentifier 
 
 ## Every Following Request
 
-The cookie (or bearer token) is **not** a random session id that points to a database row. It **contains the whole `ClaimsPrincipal`**, serialized and **encrypted** with ASP.NET Core **Data Protection**:
+The cookie is **not** a random session id that points to a database row. It **contains the whole `ClaimsPrincipal`**, serialized and **encrypted** with ASP.NET Core **Data Protection**:
 
 ```plain
 Request + Cookie ──► UseAuthentication()
@@ -393,19 +357,16 @@ Request + Cookie ──► UseAuthentication()
                      UseAuthorization() ──► [Authorize] checks ──► controller
 ```
 
-> [!NOTE]
-> The tokens returned by `MapIdentityApi` are **not JWTs**. They're encrypted with Data Protection in the same way as the cookie, so only the same application can read them. If other services need to validate your tokens, use **JWT bearer** authentication (`Microsoft.AspNetCore.Authentication.JwtBearer`) or an OpenID Connect server.
-
 ## Security Stamp
 
 The **`SecurityStamp`** is a random value that Identity **changes** whenever something security-relevant happens (e.g. the password changes). Identity re-checks the stamp in the cookie against the database **every 30 minutes**, so changing it **signs the user out on all devices**.
 
 ## Data Protection Keys
 
-The cookies and tokens are encrypted with **Data Protection keys**. By default, they're stored in the user profile (e.g. `~/.aspnet/DataProtection-Keys` on Linux, `%LOCALAPPDATA%\ASP.NET\DataProtection-Keys` on Windows).
+The cookies are encrypted with **Data Protection keys**. By default, they're stored in the user profile (e.g. `~/.aspnet/DataProtection-Keys` on Linux, `%LOCALAPPDATA%\ASP.NET\DataProtection-Keys` on Windows).
 
 > [!WARNING]
-> If the keys are lost (e.g. a Docker container is recreated) or each server instance has different keys, **all existing cookies and tokens become invalid** and every user is logged out. In production, persist the keys to a shared location, e.g. the database with `PersistKeysToDbContext` (package `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore`).
+> If the keys are lost (e.g. a Docker container is recreated) or each server instance has different keys, **all existing cookies become invalid** and every user is logged out. In production, persist the keys to a shared location, e.g. the database with `PersistKeysToDbContext` (package `Microsoft.AspNetCore.DataProtection.EntityFrameworkCore`).
 
 # Roles and Authorization
 
@@ -452,30 +413,49 @@ using (var scope = app.Services.CreateScope())
 ## `[Authorize]`
 
 ```csharp
-[ApiController]
 [Authorize]                                  // every action requires a logged-in user
-[Route("api/orders")]
-public class OrdersController(IOrderFacade orderFacade, ICurrentUser currentUser) : ControllerBase
+public class OrdersController(IOrderFacade orderFacade) : Controller
 {
-    [HttpGet("public-stats")]
     [AllowAnonymous]                         // ... except this one
-    public IActionResult GetPublicStats() => Ok();
+    public IActionResult Stats() => View();
 
-    [HttpDelete("{id:int}")]
+    [HttpPost]
+    [ValidateAntiForgeryToken]
     [Authorize(Roles = "Admin")]             // only users in the Admin role
     public async Task<IActionResult> Delete(int id, CancellationToken cancellationToken)
     {
         await orderFacade.DeleteOrderAsync(id, cancellationToken);
-        return NoContent();
+        return RedirectToAction(nameof(Index));
+    }
+
+    // ...
+}
+```
+
+- Not logged in → **redirect** to `/Account/Login?ReturnUrl=...` (the `LoginPath` from above), logged in without the `Admin` role → **redirect** to `/Account/AccessDenied`
+- `[Authorize(Roles = "Admin,Manager")]` means **Admin OR Manager**. Two separate `[Authorize]` attributes mean **AND**
+
+In views, use `User` to show only what the user may do:
+
+```xml
+@foreach (var order in Model)
+{
+    <p>Order #@order.Id</p>
+
+    if (User.IsInRole("Admin"))
+    {
+        <form asp-action="Delete" asp-route-id="@order.Id" method="post">
+            <button type="submit">Delete</button>
+        </form>
     }
 }
 ```
 
-- Not logged in → **`401`**, logged in without the `Admin` role → **`403`**
-- `[Authorize(Roles = "Admin,Manager")]` means **Admin OR Manager**. Two separate `[Authorize]` attributes mean **AND**
+> [!WARNING]
+> Hiding a button is **not** security. The user can still send the request, so the `[Authorize]` on the action is what actually protects it.
 
 > [!NOTE]
-> In MVC, the Identity cookie answers `401` / `403` with a **redirect** to `/Account/Login` or `/Account/AccessDenied` instead. Since .NET 10, it returns plain `401` / `403` for **API endpoints** (e.g. controllers with `[ApiController]`). In older versions, you had to override `OnRedirectToLogin` and `OnRedirectToAccessDenied` in `ConfigureApplicationCookie` to get them.
+> For API endpoints (controllers with `[ApiController]`), the cookie returns plain `401` / `403` instead of redirecting since .NET 10.
 
 # Identity and Repositories
 
@@ -556,25 +536,33 @@ public interface IAccountService
 
 ```csharp
 // Presentation Layer
-[ApiController]
-[Route("api/account")]
-public class AccountController(IAccountService accountService) : ControllerBase
+public class AccountController(IAccountService accountService) : Controller
 {
-    [HttpPost("register")]
+    [HttpGet]
+    public IActionResult Register() => View();
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> Register(RegisterDto dto)
     {
+        // Without [ApiController], invalid input is NOT rejected automatically
+        if (!ModelState.IsValid)
+        {
+            return View(dto);
+        }
+
         var result = await accountService.RegisterAsync(dto);
         if (!result.Succeeded)
         {
             foreach (var error in result.Errors)
             {
-                ModelState.AddModelError(error.Code, error.Description);
+                ModelState.AddModelError(string.Empty, error.Description); // shown in the validation summary
             }
 
-            return ValidationProblem(ModelState);
+            return View(dto);
         }
 
-        return NoContent();
+        return RedirectToAction(nameof(Login));
     }
 }
 ```
@@ -606,53 +594,91 @@ public class AccountService(UserManager<AppUser> userManager) : IAccountService
 
 ## Login: In the Presentation Layer
 
-`SignInManager` works with `HttpContext` (cookies, the response body for tokens), so login and logout stay in the **presentation layer**. A custom login endpoint that can issue both a cookie and a bearer token, the same way `MapIdentityApi` does it:
+`SignInManager` works with `HttpContext` (cookies), so login and logout stay in the **presentation layer**:
 
 ```csharp
-public record LoginDto([Required] string Email, [Required] string Password);
+public record LoginDto([Required, EmailAddress] string Email, [Required] string Password);
 
-[ApiController]
-[Route("api/account")]
 public class AccountController(IAccountService accountService, SignInManager<AppUser> signInManager)
-    : ControllerBase
+    : Controller
 {
     // ... Register from above
 
-    [HttpPost("login")]
-    public async Task<IActionResult> Login(LoginDto dto, [FromQuery] bool useCookies = false)
+    [HttpGet]
+    public IActionResult Login(string? returnUrl = null)
     {
-        // Which authentication handler should "sign in" the principal
-        signInManager.AuthenticationScheme = useCookies
-            ? IdentityConstants.ApplicationScheme  // Set-Cookie header
-            : IdentityConstants.BearerScheme;      // token in the response body
+        ViewData["ReturnUrl"] = returnUrl;
+        return View();
+    }
+
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Login(LoginDto dto, string? returnUrl = null)
+    {
+        ViewData["ReturnUrl"] = returnUrl;
+        if (!ModelState.IsValid)
+        {
+            return View(dto);
+        }
 
         var result = await signInManager.PasswordSignInAsync(
             dto.Email, dto.Password, isPersistent: false, lockoutOnFailure: true);
 
         if (!result.Succeeded)
         {
-            return Unauthorized(); // same answer for unknown user, wrong password, lockout
+            // Same message for unknown user, wrong password and lockout
+            ModelState.AddModelError(string.Empty, "Invalid login attempt.");
+            return View(dto);
         }
 
-        // The handler has already written the cookie / token to the response
-        return new EmptyResult();
+        // The cookie is already set; only redirect to URLs of our own app
+        return Url.IsLocalUrl(returnUrl)
+            ? Redirect(returnUrl)
+            : RedirectToAction("Index", "Home");
     }
 
-    [HttpPost("logout")]
+    [HttpPost]
     [Authorize]
+    [ValidateAntiForgeryToken]
     public async Task<IActionResult> Logout()
     {
         await signInManager.SignOutAsync(); // removes the cookie
-        return NoContent();
+        return RedirectToAction("Index", "Home");
     }
+
+    [HttpGet]
+    public IActionResult AccessDenied() => View();
 }
 ```
 
+The view `Views/Account/Login.cshtml`:
+
+```xml
+@model LoginDto
+
+<form asp-action="Login" asp-route-returnUrl="@ViewData["ReturnUrl"]" method="post">
+    <div asp-validation-summary="ModelOnly"></div>
+
+    <label asp-for="Email"></label>
+    <input asp-for="Email" />
+    <span asp-validation-for="Email"></span>
+
+    <label asp-for="Password"></label>
+    <input asp-for="Password" type="password" />
+    <span asp-validation-for="Password"></span>
+
+    <button type="submit">Log in</button>
+</form>
+```
+
 > [!NOTE]
-> Logout only removes the **cookie**. A **bearer token** can't be "deleted" on the server: the client throws it away, and it expires on its own.
+> The form tag helper adds a hidden **antiforgery token** to every `POST` form automatically, and `[ValidateAntiForgeryToken]` checks it. Because the browser sends the cookie with every request, this is what stops another site from submitting forms in the user's name (**CSRF**).
+
+> [!WARNING]
+> Always check `returnUrl` with `Url.IsLocalUrl`. Otherwise an attacker can send a link like `/Account/Login?returnUrl=https://evil.example.com` and the user ends up on a fake site right after logging in (**open redirect**).
 
 > [!TIP]
-> [MS Learn: Introduction to Identity on ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity) · [Identity model customization](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/customize-identity-model) · [Use Identity to secure a Web API backend for SPAs](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity-api-authorization)
+> [MS Learn: Introduction to Identity on ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/identity) · [Identity model customization](https://learn.microsoft.com/en-us/aspnet/core/security/authentication/customize-identity-model)
 
 # Today's Assignment
 
@@ -671,9 +697,9 @@ public class AccountController(IAccountService accountService, SignInManager<App
 
 ✓ Identity's architecture explained: managers contain the logic, stores the persistence
 
-✓ Registration, password hashing, login, claims and cookies/tokens explained step by step
+✓ Registration, password hashing, login, claims and the authentication cookie explained step by step
 
-✓ Endpoints secured with `[Authorize]` and roles
+✓ Controllers secured with `[Authorize]` and roles
 
 ✓ Identity combined with repositories and the business layer
 
