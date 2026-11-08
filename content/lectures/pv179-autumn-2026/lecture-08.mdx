@@ -260,12 +260,12 @@ deploy:
 
 Once the image is in a registry, deploying is mostly the same everywhere: **the platform pulls the new image and replaces the running container**. What differs is how much of the rest you manage yourself:
 
-| Platform                                                                    | You manage                  | How a deploy looks                                           |
-| --------------------------------------------------------------------------- | --------------------------- | ------------------------------------------------------------ |
-| **Own server / VM** (Docker + Compose)                                      | OS, Docker, updates, HTTPS  | CI connects via SSH, `docker compose pull && up -d`          |
-| **PaaS** (Azure App Service, Render, Fly.io, ...)                           | Only the app and its config | Point it at the image, it redeploys on a new tag             |
-| **Serverless containers** (Azure Container Apps, Google Cloud Run, AWS ECS) | Only the app and its config | CLI command or API call from the pipeline, scales to 0       |
-| **Kubernetes**                                                              | Cluster (or pay for one)    | Update the image tag in a manifest, the cluster rolls it out |
+| Platform                                                           | You manage                  | How a deploy looks                                           |
+| ------------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------ |
+| **Own server / VM** (Docker + Compose)                             | OS, Docker, updates, HTTPS  | CI connects via SSH, `docker compose pull && up -d`          |
+| **PaaS** (Azure App Service, Render, Fly.io, ...)                  | Only the app and its config | Point it at the image, it redeploys on a new tag             |
+| **Serverless containers** (Azure Container Apps, Google Cloud Run) | Only the app and its config | CLI command or API call from the pipeline, scales to 0       |
+| **Kubernetes**                                                     | Cluster (or pay for one)    | Update the image tag in a manifest, the cluster rolls it out |
 
 - The deploy job usually runs **only on `main`**, often as a **manual** job (`when: manual`), so someone has to click _"Deploy"_
 - Configuration (connection strings, secrets) is set **on the platform** as environment variables, not baked into the image
