@@ -1,14 +1,308 @@
 ---
 title: "Continuous Integration with Docker Deployment"
-description: "Setting up Continuous Integration pipelines, containerizing applications with Docker, and implementing automated deployment workflows."
+description: "Understanding CI/CD, Docker and rootless Docker, containerizing an ASP.NET Core MVC application with a multi-stage Dockerfile, running it together with SQL Server in Docker Compose, building, testing and publishing it with a GitLab CI/CD pipeline on the FI shared runner, managing secrets with GitLab CI/CD variables, and an overview of deployment platforms."
 order: 8
 recommendedStudyFrom: "2026-11-09"
 recommendedStudyTo: "2026-11-15"
 availableFrom: "2026-11-09"
 tags:
   - ci
+  - cd
   - docker
+  - docker-compose
+  - rootless-docker
+  - gitlab-ci
+  - fi-shared-runner
+  - secrets
+  - deployment
 ---
 
+# Agenda
+
+1. CI/CD
+2. Docker
+3. Dockerizing an ASP.NET Core App
+4. Docker Compose
+5. GitLab CI/CD
+6. Today's Assignment
+
+# CI/CD
+
+- **Continuous Integration (CI)**: every push is automatically **built and tested**. Broken code is found within minutes, not the day before the deadline
+- **Continuous Delivery (CD)**: every successful build produces a **deployable artifact** (for us, a Docker image), and deployment is one click away
+- **Continuous Deployment**: same, but without the click. Every change on `main` goes straight to production
+
+The point is that "it works on my machine" stops being enough. The pipeline runs on a **clean machine** every time, so missing files, forgotten migrations and failing tests show up immediately.
+
+# Docker
+
+## Why?
+
+The pipeline and the server need the same environment as your machine: the right .NET runtime, the right configuration, a database. **Docker** packs the app and everything it needs into an **image** that runs the same everywhere.
+
+| Term          | Meaning                                                                    |
+| ------------- | -------------------------------------------------------------------------- |
+| **Image**     | Read-only template: OS files + runtime + your app. Built from a Dockerfile |
+| **Container** | A running instance of an image. Isolated, disposable                       |
+| **Registry**  | Storage for images (Docker Hub, `mcr.microsoft.com`, GitLab registry)      |
+| **Volume**    | Storage that **survives** removing the container (e.g. database files)     |
+
+> [!NOTE]
+> A container is **not a virtual machine**. It shares the kernel of the host and only isolates processes, so it starts in a second and has almost no overhead.
+
+## Basic Commands
+
+```bash
+docker build -t myapp .                  # build an image from ./Dockerfile
+docker run -d -p 8080:8080 myapp         # start a container, host port 8080 → container port 8080
+docker ps                                # list running containers
+docker logs -f <container>               # follow the output of a container
+docker exec -it <container> bash         # open a shell inside a running container
+docker stop <container>                  # stop it (docker rm removes it)
+```
+
+## Rootless Docker
+
+By default, the Docker daemon runs as **root**, and anyone in the `docker` group can control it, which is effectively root access to the machine. If someone breaks out of a container, they're root on the host.
+
+**Rootless mode** runs the daemon and the containers as a **normal user** instead. A container escape then only gets the permissions of that user.
+
+- Set up per user with `dockerd-rootless-setuptool.sh install`, the commands stay the same
+- Some limitations: ports below 1024 need extra configuration, and some networking and storage features are slower or missing
+- **Podman** is a Docker alternative that is rootless by default and accepts the same commands and Dockerfiles
+
+> [!NOTE]
+> Rootless Docker is about the **daemon** on the host. `USER` in the Dockerfile (see below) is about the **app inside** the container. Both are worth doing, and they protect against different things.
+
+# Dockerizing an ASP.NET Core App
+
+## Multi-Stage Dockerfile
+
+Building needs the whole **SDK** (~800 MB), running only needs the **ASP.NET Core runtime** (~200 MB). A **multi-stage** build uses the SDK image to publish the app and copies only the output into a small runtime image:
+
+```dockerfile
+# Stage 1: build with the full SDK
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+
+# Copy only the project files and restore first: this layer is cached
+# and only re-runs when a .csproj changes, not on every code change
+COPY MyApp.Mvc/MyApp.Mvc.csproj MyApp.Mvc/
+COPY MyApp.BL/MyApp.BL.csproj MyApp.BL/
+COPY MyApp.DAL/MyApp.DAL.csproj MyApp.DAL/
+COPY MyApp.Migrations/MyApp.Migrations.csproj MyApp.Migrations/
+RUN dotnet restore MyApp.Mvc/MyApp.Mvc.csproj
+
+# Now copy the rest of the source code and publish
+COPY . .
+RUN dotnet publish MyApp.Mvc/MyApp.Mvc.csproj -c Release -o /app --no-restore
+
+# Stage 2: run with the ASP.NET Core runtime only
+FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS final
+WORKDIR /app
+COPY --from=build /app .
+USER $APP_UID
+EXPOSE 8080
+ENTRYPOINT ["dotnet", "MyApp.Mvc.dll"]
+```
+
+- Each instruction creates a **layer**. If nothing it depends on changed, Docker reuses it from the cache. That's why the `.csproj` files are copied before the rest
+- The .NET images listen on port **8080** and provide a **non-root** user (`$APP_UID`). Don't run the app as root
+- If you use `Directory.Build.props` or `Directory.Packages.props`, copy them before `dotnet restore` too
+
+## `.dockerignore`
+
+`COPY . .` copies everything in the folder. Exclude what doesn't belong into the image, otherwise local `bin/` and `obj/` folders break the build and secrets end up in the image:
+
+```plain
+**/bin/
+**/obj/
+.git/
+.vs/
+.idea/
+.env
+```
+
+# Docker Compose
+
+Our app needs a database. **Docker Compose** describes several containers in one `compose.yaml` and starts them together with one command:
+
+```yaml
+services:
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db-data:/var/opt/mssql # keep the data when the container is recreated
+    healthcheck:
+      test: /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "$$MSSQL_SA_PASSWORD" -C -Q "SELECT 1"
+      interval: 10s
+      retries: 10
+
+  app:
+    build: . # or image: <registry>/myapp:<tag> (see below)
+    ports:
+      - "8080:8080"
+    environment:
+      # overrides ConnectionStrings:Default from appsettings.json
+      ConnectionStrings__Default: "Server=db;Database=MyApp;User Id=sa;Password=${DB_PASSWORD};TrustServerCertificate=True"
+    depends_on:
+      db:
+        condition: service_healthy # wait until SQL Server accepts connections
+
+volumes:
+  db-data:
+```
+
+```bash
+docker compose up -d --build   # build the app image and start everything
+docker compose logs -f app     # watch the app
+docker compose down            # stop and remove the containers (volumes stay)
+```
+
+- Containers in one Compose project share a network and find each other **by service name**: the app connects to `Server=db`, not `localhost`
+- `${DB_PASSWORD}` is read from the environment or from a `.env` file next to `compose.yaml`. Don't commit `.env`
+- Without the `healthcheck`, `depends_on` only waits until the database container **starts**, not until SQL Server is ready
+
 > [!WARNING]
-> Work in progress.
+> Inside a container, `localhost` is **the container itself**. `Server=localhost` from your `appsettings.json` won't find a database running in another container.
+
+# GitLab CI/CD
+
+GitLab runs a **pipeline** for every push, defined in `.gitlab-ci.yml` in the root of the repository.
+
+- A pipeline consists of **stages** that run one after another
+- Each stage contains **jobs** that run in parallel. A job runs its `script` in a fresh container from the given `image`
+- If a job fails, the following stages don't run
+
+```plain
+push ──► test ──────────► publish ─────────────► deploy
+         dotnet build      docker build             platform pulls the
+         dotnet test       docker push → registry   new image and restarts
+         (every branch)    (main only)              (main only, manual)
+```
+
+## FI Shared Runner
+
+Jobs are executed by a **runner**, a machine that picks up jobs and runs them. On `gitlab.fi.muni.cz` you don't need your own: the faculty provides a **shared runner** with the Docker executor (every job gets a fresh container from its `image`, thrown away afterwards).
+
+- Enable **Settings → General → Visibility, project features, permissions → CI/CD** (if it isn't on already)
+- Give every job the tag **`shared-fi`**. The shared runner only picks up jobs with this tag
+- Set artifacts to expire (e.g. `expire_in: 1 hour`), the runner's disk is shared by everyone
+
+> [!TIP]
+> Job stuck in _"pending"_ forever? It's almost always the missing `shared-fi` tag. More details: [FI: GitLab CI](https://www.fi.muni.cz/tech/unix/gitlab/ci.html).
+
+## Build and Test
+
+```yaml
+default:
+  tags:
+    - shared-fi # every job runs on the FI shared runner
+
+stages:
+  - test
+  - publish
+  - deploy
+
+test:
+  stage: test
+  image: mcr.microsoft.com/dotnet/sdk:10.0
+  script:
+    - dotnet restore
+    - dotnet build --no-restore -c Release
+    - dotnet test --no-build -c Release
+```
+
+This already gives you CI: every push and every merge request shows a green check or a red cross. In **Settings → Merge requests**, enable _"Pipelines must succeed"_ so nothing broken gets merged.
+
+## Publishing the Image
+
+After the tests pass, the pipeline can build the Docker image and **push it to a container registry** (e.g. Docker Hub, GitLab Container Registry, GitHub Container Registry or the registries of the cloud providers). What it gives you:
+
+- **One image for everything**: the exact image that passed the pipeline is the one that gets deployed. Nobody builds it on their laptop with uncommitted changes
+- **Versioning**: tag each image with the **commit hash** (and e.g. `latest`). You always know which code is running, and going back to the previous version is just running the previous tag
+- **Easy deployment**: any server or platform that can reach the registry can pull and run the app, without the source code or the .NET SDK
+- **Sharing**: teammates (or the reviewers) can run the app with a single `docker run`, without setting anything up
+
+Usually this job runs **only on `main`**, so not every feature branch fills the registry with images.
+
+## Secrets (CI/CD Variables)
+
+Publishing and deploying need credentials: registry passwords, SSH keys, cloud tokens. They go into **Settings → CI/CD → Variables**, never into the repository. Every variable is available in the jobs as an **environment variable**:
+
+```yaml
+deploy:
+  stage: deploy
+  script:
+    - ./deploy.sh --token "$DEPLOY_TOKEN" # DEPLOY_TOKEN is set in the project settings
+```
+
+| Option        | What it does                                                                                       |
+| ------------- | -------------------------------------------------------------------------------------------------- |
+| **Masked**    | The value is replaced with `[MASKED]` in job logs                                                  |
+| **Hidden**    | Masked, and the value can't be viewed in the settings anymore after saving                         |
+| **Protected** | Only available in pipelines on **protected** branches and tags (e.g. `main`)                       |
+| **File**      | GitLab writes the value into a temporary file, and the variable contains its **path** (e.g. a key) |
+
+- Some variables are **predefined** by GitLab for every job, e.g. `$CI_COMMIT_SHORT_SHA` or `$CI_REGISTRY_PASSWORD` for the project's registry, so you don't have to create them
+- Variables can also be set on a **group**, so all projects of the team share them
+
+> [!WARNING]
+> Masking only hides the value in the logs. Anyone who can push to a branch where the variable is available can still send it somewhere in a job. That's why secrets should also be **protected**: then only code that made it to `main` sees them.
+
+> [!CAUTION]
+> Secrets belong into CI/CD variables or the platform's settings, **never** into `.gitlab-ci.yml`, the Dockerfile or the image. Anyone who can pull the image can read every file in it.
+
+## Deploying
+
+Once the image is in a registry, deploying is mostly the same everywhere: **the platform pulls the new image and replaces the running container**. What differs is how much of the rest you manage yourself:
+
+| Platform                                                           | You manage                  | How a deploy looks                                           |
+| ------------------------------------------------------------------ | --------------------------- | ------------------------------------------------------------ |
+| **Own server / VM** (Docker + Compose)                             | OS, Docker, updates, HTTPS  | CI connects via SSH, `docker compose pull && up -d`          |
+| **PaaS** (Azure App Service, Render, Fly.io, ...)                  | Only the app and its config | Point it at the image, it redeploys on a new tag             |
+| **Serverless containers** (Azure Container Apps, Google Cloud Run) | Only the app and its config | CLI command or API call from the pipeline, scales to 0       |
+| **Kubernetes**                                                     | Cluster (or pay for one)    | Update the image tag in a manifest, the cluster rolls it out |
+
+- The deploy job usually runs **only on `main`**, often as a **manual** job (`when: manual`), so someone has to click _"Deploy"_
+- Configuration (connection strings, secrets) is set **on the platform** as environment variables, not baked into the image
+- Credentials the deploy job needs (SSH keys, cloud tokens) are CI/CD variables (see above)
+
+> [!TIP]
+> [GitLab: CI/CD YAML syntax reference](https://docs.gitlab.com/ci/yaml/) · [MS Learn: Containerize a .NET app](https://learn.microsoft.com/en-us/dotnet/core/docker/build-container)
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-08](https://gitlab.fi.muni.cz/pv179/seminar-08-2026-docker-and-ci)
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ CI, Continuous Delivery and Continuous Deployment distinguished
+
+✓ Docker images, containers, registries and volumes explained
+
+✓ ASP.NET Core MVC app containerized with a multi-stage Dockerfile
+
+✓ App and SQL Server started together with Docker Compose
+
+✓ Rootless Docker explained
+
+✓ GitLab pipeline set up on the FI shared runner, secrets stored in CI/CD variables
+
+✓ Deployment platforms compared: own server, PaaS, serverless containers, Kubernetes
+
+✓ Today's assignment downloaded
+
+> [!NOTE]
+> **Next time:** MVC.
+
+> [!IMPORTANT]
+> Any questions?
