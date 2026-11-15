@@ -161,10 +161,10 @@ Razor mixes HTML with C#. The **`@`** character switches from HTML to C#, and Ra
 
 @{
     ViewData["Title"] = "Products";
-    var inStock = Model.Count(p => p.Stock > 0);
+    var count = Model.Count();
 }
 
-<h1>Products (@inStock in stock)</h1>
+<h1>Products (@count)</h1>
 
 @if (!Model.Any())
 {
@@ -513,7 +513,11 @@ The action has a parameter `CreateProductViewModel model`, so MVC creates a new 
 
 ```csharp
 [HttpGet]
-public IActionResult Create() => View(new CreateProductViewModel());
+public async Task<IActionResult> Create()
+{
+    await LoadCategoriesAsync();
+    return View(new CreateProductViewModel());
+}
 
 [HttpPost]
 [ValidateAntiForgeryToken]
@@ -522,13 +526,23 @@ public async Task<IActionResult> Create(CreateProductViewModel model)
     if (!ModelState.IsValid)
     {
         // Show the same form again, with the values and the error messages
+        await LoadCategoriesAsync();
         return View(model);
     }
 
     await productService.CreateAsync(model.Name, model.Price, model.CategoryId);
     return RedirectToAction(nameof(Index));
 }
+
+private async Task LoadCategoriesAsync()
+{
+    var categories = await categoryService.GetAllAsync();
+    ViewBag.Categories = new SelectList(categories, "Id", "Name");
+}
 ```
+
+> [!NOTE]
+> The POST is a **new request**, so the `ViewBag.Categories` set in the GET action is gone. Only the values of the form inputs come back. Without filling it again before `return View(model)`, the form is shown with an **empty dropdown**.
 
 > [!CAUTION]
 > Client-side validation is only for **user comfort**, anyone can turn it off or send the request directly. **Always check `ModelState.IsValid` on the server.**
@@ -579,6 +593,9 @@ Renders as:
 
 3. The browser sends the request **with your cookie**, so the eshop thinks it's you, and the e-mail of your account is changed
 
+> [!NOTE]
+> Modern browsers and ASP.NET Core set auth cookies to **`SameSite=Lax`** by default, which stops sending them on cross-site POSTs, so this exact attack would fail today. But that's only a **partial defence**: it doesn't apply to cookies with `SameSite=None`, to older browsers, or to requests from **subdomains** (`blog.eshop.example.com` counts as the same site). That's why we still use anti-forgery tokens.
+
 **The fix: an anti-forgery token.** The server adds a random token to every form, and only accepts the POST if the token is sent back:
 
 ```xml
@@ -600,7 +617,7 @@ builder.Services.AddControllersWithViews(options =>
 ```
 
 > [!IMPORTANT]
-> This is also why actions that **change data** must never be `GET`. A link like `<img src="https://eshop.example.com/Products/Delete/5">` on any page would delete the product, and GET requests aren't checked for the token.
+> This is also why actions that **change data** must never be `GET`. A link like `<a href="https://eshop.example.com/Products/Delete/5">Win a prize!</a>` on any page would delete the product when you click it: `SameSite=Lax` cookies **are sent** when you navigate to a site with a link, and GET requests aren't checked for the token.
 
 > [!TIP]
 > [MS Learn: Tag Helpers in forms](https://learn.microsoft.com/en-us/aspnet/core/mvc/views/working-with-forms) · [Model validation](https://learn.microsoft.com/en-us/aspnet/core/mvc/models/validation) · [Prevent CSRF attacks](https://learn.microsoft.com/en-us/aspnet/core/security/anti-request-forgery)
