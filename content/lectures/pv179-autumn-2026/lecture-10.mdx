@@ -1,15 +1,335 @@
 ---
-title: "Caching, Pagination and Simple Search"
-description: "Implementing caching strategies for performance optimization, building pagination for large datasets, and creating simple yet effective search functionality."
+title: "Caching, EF Core Queries, Pagination and Query Objects"
+description: "Caching data with IMemoryCache (expiration and invalidation) and HybridCache, how EF Core builds and runs queries (IQueryable vs IEnumerable, deferred execution, seeing the SQL), offset and keyset pagination, and encapsulating filtering and paging in query objects."
 order: 10
 recommendedStudyFrom: "2026-11-23"
 recommendedStudyTo: "2026-11-29"
 availableFrom: "2026-11-23"
 tags:
-  - cache
+  - caching
+  - imemorycache
+  - hybridcache
+  - ef-core
+  - iqueryable
   - pagination
-  - search
+  - keyset-pagination
+  - query-object
 ---
 
+# Agenda
+
+1. Caching with `IMemoryCache`
+2. EF Core Queries
+3. Pagination
+4. Query Objects
+5. Today's Assignment
+
+# Caching with `IMemoryCache`
+
+## Why?
+
+Some data is read often but changes rarely: a post detail, a list of categories, the home page. Instead of asking the database every time, keep the result **in memory** for a while.
+
+| Type               | Where the data lives            | Use when                                 |
+| ------------------ | ------------------------------- | ---------------------------------------- |
+| **In-memory**      | RAM of the app (`IMemoryCache`) | One instance of the app (your project)   |
+| **Distributed**    | Redis, SQL Server, ...          | Several instances must share one cache   |
+| **Output caching** | Whole HTTP responses            | The entire page is the same for everyone |
+
+## Usage
+
+`IMemoryCache` is registered by `builder.Services.AddMemoryCache()` (MVC already does it for you) and injected like any other service. `GetOrCreateAsync` returns the cached value, or runs the factory, stores the result and returns it:
+
+```csharp
+public class PostService(AppDbContext db, IMemoryCache cache) : IPostService
+{
+    public async Task<PostDTO?> GetByIdAsync(int id)
+    {
+        return await cache.GetOrCreateAsync($"post:{id}", async entry =>
+        {
+            entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
+
+            var post = await db.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id);
+            return post?.Adapt<PostDTO>();
+        });
+    }
+}
+```
+
+The same thing written by hand is `TryGetValue` (hit → return it) and `Set` (miss → load and store).
+
+## Expiration
+
+| Option       | Behavior                                                             |
+| ------------ | -------------------------------------------------------------------- |
+| **Absolute** | Removed after a fixed time, no matter how often it's read            |
+| **Sliding**  | Removed after a time **without access**, every read resets the timer |
+| **Both**     | Sliding, but never longer than the absolute limit                    |
+
 > [!WARNING]
-> Work in progress.
+> With **only** sliding expiration, an entry that is read often **never expires**, so it can stay outdated forever. Combine it with an absolute limit.
+
+## Invalidation
+
+When the data changes, remove the old entry, otherwise users see the old version until it expires:
+
+```csharp
+public async Task UpdateAsync(PostUpdateDTO dto)
+{
+    // ... update and save ...
+    cache.Remove($"post:{dto.Id}");
+}
+```
+
+- **Cache DTOs**, not tracked entities. Entities hold references to the `DbContext`, which is gone after the request
+- **The key must contain everything the result depends on**: `post:{id}`, or `feed:{userId}:{page}` for per-user data
+
+## `HybridCache`
+
+The newer cache (.NET 9+), recommended for new projects. Package `Microsoft.Extensions.Caching.Hybrid`, registered with `builder.Services.AddHybridCache()`:
+
+```csharp
+public class PostService(AppDbContext db, HybridCache cache) : IPostService
+{
+    public async Task<PostDTO?> GetByIdAsync(int id, CancellationToken ct = default)
+    {
+        return await cache.GetOrCreateAsync(
+            $"post:{id}",
+            async token => (await db.Posts.AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == id, token))?.Adapt<PostDTO>(),
+            new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
+            tags: ["posts"],
+            cancellationToken: ct);
+    }
+
+    public async Task UpdateAsync(PostUpdateDTO dto)
+    {
+        // ... update and save ...
+        await cache.RemoveByTagAsync("posts"); // removes every entry tagged "posts"
+    }
+}
+```
+
+|                                      | `IMemoryCache`                               | `HybridCache`                                            |
+| ------------------------------------ | -------------------------------------------- | -------------------------------------------------------- |
+| 10 requests for the same missing key | Factory runs 10× (10 DB queries)             | Factory runs **once**, the others wait                   |
+| Invalidation                         | Only by key                                  | By key **or by tag**                                     |
+| Several app instances                | Each has its own cache, they get out of sync | Add Redis and it's used as a shared 2nd level, same code |
+
+> [!TIP]
+> [MS Learn: Cache in-memory in ASP.NET Core](https://learn.microsoft.com/en-us/aspnet/core/performance/caching/memory) · [MS Learn: HybridCache](https://learn.microsoft.com/en-us/aspnet/core/performance/caching/hybrid)
+
+# EF Core Queries
+
+## `IQueryable` vs `IEnumerable`
+
+|         | `IQueryable<T>`                    | `IEnumerable<T>`            |
+| ------- | ---------------------------------- | --------------------------- |
+| Runs    | In the database, translated to SQL | In memory, in C#            |
+| Example | `db.Posts.Where(...)`              | `posts.ToList().Where(...)` |
+
+Everything after `ToList()` or `AsEnumerable()` runs in memory, **on all loaded rows**:
+
+```csharp
+// ❌ loads ALL posts, then filters and pages in C#
+var posts = db.Posts.ToList().Where(p => p.CreatorId == id).Take(10);
+
+// ✅ WHERE and TOP/LIMIT in SQL, loads 10 rows
+var posts = await db.Posts.Where(p => p.CreatorId == id).Take(10).ToListAsync();
+```
+
+## Deferred Execution
+
+An `IQueryable` is only a **description** of the query. It runs when you ask for the results: `ToListAsync`, `FirstOrDefaultAsync`, `CountAsync`, `AnyAsync`, `foreach`. Until then you can keep adding to it, which is how optional filters (search) are built:
+
+```csharp
+IQueryable<Post> query = db.Posts;
+
+if (!string.IsNullOrWhiteSpace(search))
+{
+    query = query.Where(p => p.Title.Contains(search));
+}
+
+if (creatorId is not null)
+{
+    query = query.Where(p => p.CreatorId == creatorId);
+}
+
+var posts = await query.ToListAsync(); // one SQL query with all the filters
+```
+
+## Seeing the SQL
+
+```csharp
+var sql = query.ToQueryString(); // the SQL, without running it
+```
+
+Or log every command EF Core sends, in `appsettings.Development.json`:
+
+```json
+"Logging": {
+  "LogLevel": {
+    "Microsoft.EntityFrameworkCore.Database.Command": "Information"
+  }
+}
+```
+
+> [!TIP]
+> For read-only lists, use `AsNoTracking()` and `Select` only the columns you show. Less data loaded, no change tracking overhead.
+
+# Pagination
+
+## Offset Pagination
+
+The classic "page 1, 2, 3 ..." with `Skip` and `Take`. You need **two queries**: one for the items, one for the total count (to know how many pages there are):
+
+```csharp
+public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize)
+{
+    public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
+}
+
+public static class PagingExtensions
+{
+    public static async Task<PagedResult<T>> ToPagedResultAsync<T>(
+        this IQueryable<T> query, int page, int pageSize)
+    {
+        page = Math.Max(page, 1);
+        pageSize = Math.Clamp(pageSize, 1, 100); // never trust ?pageSize=1000000
+
+        var totalCount = await query.CountAsync();
+        var items = await query
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return new PagedResult<T>(items, totalCount, page, pageSize);
+    }
+}
+
+var result = await db.Posts
+    .OrderByDescending(p => p.CreatedAt)
+    .ToPagedResultAsync(page, pageSize);
+```
+
+> [!IMPORTANT]
+> Always `OrderBy` before `Skip` / `Take`. Without it, the database may return rows in a different order on every request, so the same post can show up on two pages.
+
+## Keyset Pagination
+
+Instead of "skip 1000 rows", remember the **last item you showed** and continue after it:
+
+```csharp
+// first page: lastId = null
+var posts = await db.Posts
+    .Where(p => lastId == null || p.Id < lastId)
+    .OrderByDescending(p => p.Id)
+    .Take(pageSize)
+    .ToListAsync();
+
+// next page: /posts?lastId=<Id of the last post on this page>
+```
+
+|                       | Offset (`Skip` / `Take`)                    | Keyset (`Where Id < last`)         |
+| --------------------- | ------------------------------------------- | ---------------------------------- |
+| Jump to page 57       | ✅                                          | ❌ only next / previous            |
+| Speed on deep pages   | Slower, the DB still reads the skipped rows | Same on every page (uses an index) |
+| New rows while paging | Items shift, duplicates or skipped items    | Stable                             |
+| Typical use           | Admin tables, search results                | Infinite scroll, feeds, APIs       |
+
+> [!TIP]
+> [MS Learn: Pagination in EF Core](https://learn.microsoft.com/en-us/ef/core/querying/pagination)
+
+# Query Objects
+
+## The Problem
+
+Lists need filtering, sorting and paging, in many combinations. Put into a repository, it ends like this:
+
+```csharp
+GetPostsByCreator(...)
+GetPostsByTitle(...)
+GetPostsByCreatorAndTitle(...)
+GetPostsByCreatorAndTitlePaged(...)
+// ...
+```
+
+## The Solution
+
+A **query object** is one class for one query. The filter is a simple object, and the class builds the query from whatever is filled in:
+
+```csharp
+public class PostFilter
+{
+    public string? Title { get; init; }
+    public int? CreatorId { get; init; }
+    public int Page { get; init; } = 1;
+    public int PageSize { get; init; } = 10;
+}
+
+public class PostListQuery(AppDbContext db)
+{
+    public Task<PagedResult<PostListItemDTO>> ExecuteAsync(PostFilter filter)
+    {
+        var query = db.Posts.AsNoTracking();
+
+        if (!string.IsNullOrWhiteSpace(filter.Title))
+        {
+            query = query.Where(p => p.Title.Contains(filter.Title));
+        }
+
+        if (filter.CreatorId is not null)
+        {
+            query = query.Where(p => p.CreatorId == filter.CreatorId);
+        }
+
+        return query
+            .OrderByDescending(p => p.CreatedAt)
+            .Select(p => new PostListItemDTO(p.Id, p.Title, p.Creator.Username, p.CreatedAt))
+            .ToPagedResultAsync(filter.Page, filter.PageSize);
+    }
+}
+```
+
+```csharp
+// registered as builder.Services.AddScoped<PostListQuery>();
+var result = await postListQuery.ExecuteAsync(new PostFilter { Title = search, Page = page });
+```
+
+- **One place** for one query: adding a new filter means one new property and one `if`
+- **Repositories stay small**: CRUD for one entity. Complex reads go into query objects
+- **Easy to test**: give it a filter, check the result
+- Fits the search form directly: the form fields map to the filter properties
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-10](https://gitlab.fi.muni.cz/pv179/seminar-10-2026-caching-pagination-and-simple-search)
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Data cached with `IMemoryCache`, absolute and sliding expiration compared
+
+✓ Cache entries invalidated when the data changes
+
+✓ `HybridCache` compared with `IMemoryCache`
+
+✓ `IQueryable` vs `IEnumerable` and deferred execution explained
+
+✓ Generated SQL inspected with `ToQueryString` and logging
+
+✓ Offset and keyset pagination compared
+
+✓ Filtering and paging encapsulated in a query object
+
+✓ Today's assignment downloaded
+
+> [!NOTE]
+> **Next time:** to be announced.
+
+> [!IMPORTANT]
+> Any questions?
