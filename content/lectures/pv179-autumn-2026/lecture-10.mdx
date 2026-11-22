@@ -81,7 +81,7 @@ public async Task UpdateAsync(PostUpdateDto dto)
 }
 ```
 
-- **Cache DTOs**, not tracked entities. Entities hold references to the `DbContext`, which is gone after the request
+- **Cache DTOs**, not entities. An entity belongs to the request's `DbContext`: in later requests its unloaded navigation properties are `null`, and every request shares (and can change) the same object
 - **The key must contain everything the result depends on**: `post:{id}`, or `feed:{userId}:{page}` for per-user data
 
 ## `HybridCache`
@@ -197,16 +197,16 @@ public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, i
 public static class PagingExtensions
 {
     public static async Task<PagedResult<T>> ToPagedResultAsync<T>(
-        this IQueryable<T> query, int page, int pageSize)
+        this IQueryable<T> query, int page, int pageSize, CancellationToken ct = default)
     {
         page = Math.Max(page, 1);
         pageSize = Math.Clamp(pageSize, 1, 100); // never trust ?pageSize=1000000
 
-        var totalCount = await query.CountAsync();
+        var totalCount = await query.CountAsync(ct);
         var items = await query
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
-            .ToListAsync();
+            .ToListAsync(ct);
 
         return new PagedResult<T>(items, totalCount, page, pageSize);
     }
@@ -298,7 +298,7 @@ public class PostListQuery(AppDbContext context) : IPostListQuery
         return query
             .OrderByDescending(p => p.CreatedAt)
             .ThenByDescending(p => p.Id)
-            .ToPagedResultAsync(filter.Page, filter.PageSize);
+            .ToPagedResultAsync(filter.Page, filter.PageSize, ct);
     }
 }
 ```
