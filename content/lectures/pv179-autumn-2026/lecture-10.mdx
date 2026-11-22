@@ -41,16 +41,16 @@ Some data is read often but changes rarely: a post detail, a list of categories,
 `IMemoryCache` is registered by `builder.Services.AddMemoryCache()` (MVC already does it for you) and injected like any other service. `GetOrCreateAsync` returns the cached value, or runs the factory, stores the result and returns it:
 
 ```csharp
-public class PostService(AppDbContext db, IMemoryCache cache) : IPostService
+public class PostService(IUnitOfWork unitOfWork, IMemoryCache cache) : IPostService
 {
-    public async Task<PostDTO?> GetByIdAsync(int id)
+    public async Task<PostDto?> GetByIdAsync(int id)
     {
         return await cache.GetOrCreateAsync($"post:{id}", async entry =>
         {
             entry.AbsoluteExpirationRelativeToNow = TimeSpan.FromMinutes(5);
 
-            var post = await db.Posts.AsNoTracking().FirstOrDefaultAsync(p => p.Id == id);
-            return post?.Adapt<PostDTO>();
+            var post = await unitOfWork.Posts.GetByIdAsync(id);
+            return post?.Adapt<PostDto>();
         });
     }
 }
@@ -74,7 +74,7 @@ The same thing written by hand is `TryGetValue` (hit → return it) and `Set` (m
 When the data changes, remove the old entry, otherwise users see the old version until it expires:
 
 ```csharp
-public async Task UpdateAsync(PostUpdateDTO dto)
+public async Task UpdateAsync(PostUpdateDto dto)
 {
     // ... update and save ...
     cache.Remove($"post:{dto.Id}");
@@ -89,20 +89,19 @@ public async Task UpdateAsync(PostUpdateDTO dto)
 The newer cache (.NET 9+), recommended for new projects. Package `Microsoft.Extensions.Caching.Hybrid`, registered with `builder.Services.AddHybridCache()`:
 
 ```csharp
-public class PostService(AppDbContext db, HybridCache cache) : IPostService
+public class PostService(IUnitOfWork unitOfWork, HybridCache cache) : IPostService
 {
-    public async Task<PostDTO?> GetByIdAsync(int id, CancellationToken ct = default)
+    public async Task<PostDto?> GetByIdAsync(int id, CancellationToken ct = default)
     {
         return await cache.GetOrCreateAsync(
             $"post:{id}",
-            async token => (await db.Posts.AsNoTracking()
-                .FirstOrDefaultAsync(p => p.Id == id, token))?.Adapt<PostDTO>(),
+            async token => (await unitOfWork.Posts.GetByIdAsync(id, token))?.Adapt<PostDto>(),
             new HybridCacheEntryOptions { Expiration = TimeSpan.FromMinutes(5) },
             tags: ["posts"],
             cancellationToken: ct);
     }
 
-    public async Task UpdateAsync(PostUpdateDTO dto)
+    public async Task UpdateAsync(PostUpdateDto dto)
     {
         // ... update and save ...
         await cache.RemoveByTagAsync("posts"); // removes every entry tagged "posts"
@@ -121,21 +120,23 @@ public class PostService(AppDbContext db, HybridCache cache) : IPostService
 
 # EF Core Queries
 
+The queries in this and the next sections belong in the **DAL** (repositories and query objects), where `context` is the `AppDbContext`.
+
 ## `IQueryable` vs `IEnumerable`
 
 |         | `IQueryable<T>`                    | `IEnumerable<T>`            |
 | ------- | ---------------------------------- | --------------------------- |
 | Runs    | In the database, translated to SQL | In memory, in C#            |
-| Example | `db.Posts.Where(...)`              | `posts.ToList().Where(...)` |
+| Example | `context.Posts.Where(...)`         | `posts.ToList().Where(...)` |
 
 Everything after `ToList()` or `AsEnumerable()` runs in memory, **on all loaded rows**:
 
 ```csharp
 // ❌ loads ALL posts, then filters and pages in C#
-var posts = db.Posts.ToList().Where(p => p.CreatorId == id).Take(10);
+var posts = context.Posts.ToList().Where(p => p.CreatorId == id).Take(10);
 
 // ✅ WHERE and TOP/LIMIT in SQL, loads 10 rows
-var posts = await db.Posts.Where(p => p.CreatorId == id).Take(10).ToListAsync();
+var posts = await context.Posts.Where(p => p.CreatorId == id).Take(10).ToListAsync();
 ```
 
 ## Deferred Execution
@@ -143,7 +144,7 @@ var posts = await db.Posts.Where(p => p.CreatorId == id).Take(10).ToListAsync();
 An `IQueryable` is only a **description** of the query. It runs when you ask for the results: `ToListAsync`, `FirstOrDefaultAsync`, `CountAsync`, `AnyAsync`, `foreach`. Until then you can keep adding to it, which is how optional filters (search) are built:
 
 ```csharp
-IQueryable<Post> query = db.Posts;
+IQueryable<Post> query = context.Posts;
 
 if (!string.IsNullOrWhiteSpace(search))
 {
@@ -187,6 +188,10 @@ The classic "page 1, 2, 3 ..." with `Skip` and `Take`. You need **two queries**:
 public record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount, int Page, int PageSize)
 {
     public int TotalPages => (int)Math.Ceiling(TotalCount / (double)PageSize);
+
+    // converts the items (e.g. entities → DTOs), keeps the paging info
+    public PagedResult<TOut> Map<TOut>(Func<T, TOut> map)
+        => new(Items.Select(map).ToList(), TotalCount, Page, PageSize);
 }
 
 public static class PagingExtensions
@@ -207,13 +212,14 @@ public static class PagingExtensions
     }
 }
 
-var result = await db.Posts
+var result = await context.Posts
     .OrderByDescending(p => p.CreatedAt)
+    .ThenByDescending(p => p.Id)
     .ToPagedResultAsync(page, pageSize);
 ```
 
 > [!IMPORTANT]
-> Always `OrderBy` before `Skip` / `Take`. Without it, the database may return rows in a different order on every request, so the same post can show up on two pages.
+> Always `OrderBy` before `Skip` / `Take`, and make the order **unique**: two posts can have the same `CreatedAt`, so add `ThenBy` on `Id` as a tie-breaker. Without it, the database may return rows in a different order on every request, so the same post can show up on two pages.
 
 ## Keyset Pagination
 
@@ -221,7 +227,7 @@ Instead of "skip 1000 rows", remember the **last item you showed** and continue 
 
 ```csharp
 // first page: lastId = null
-var posts = await db.Posts
+var posts = await context.Posts
     .Where(p => lastId == null || p.Id < lastId)
     .OrderByDescending(p => p.Id)
     .Take(pageSize)
@@ -256,9 +262,10 @@ GetPostsByCreatorAndTitlePaged(...)
 
 ## The Solution
 
-A **query object** is one class for one query. The filter is a simple object, and the class builds the query from whatever is filled in:
+A **query object** is one class for one query. The filter is a simple object, and the class builds the query from whatever is filled in. It lives in the **DAL** next to the repositories and uses the `DbContext` the same way they do:
 
 ```csharp
+// DAL
 public class PostFilter
 {
     public string? Title { get; init; }
@@ -267,11 +274,16 @@ public class PostFilter
     public int PageSize { get; init; } = 10;
 }
 
-public class PostListQuery(AppDbContext db)
+public interface IPostListQuery
 {
-    public Task<PagedResult<PostListItemDTO>> ExecuteAsync(PostFilter filter)
+    Task<PagedResult<Post>> ExecuteAsync(PostFilter filter, CancellationToken ct = default);
+}
+
+public class PostListQuery(AppDbContext context) : IPostListQuery
+{
+    public Task<PagedResult<Post>> ExecuteAsync(PostFilter filter, CancellationToken ct = default)
     {
-        var query = db.Posts.AsNoTracking();
+        IQueryable<Post> query = context.Posts.AsNoTracking().Include(p => p.Creator);
 
         if (!string.IsNullOrWhiteSpace(filter.Title))
         {
@@ -285,20 +297,29 @@ public class PostListQuery(AppDbContext db)
 
         return query
             .OrderByDescending(p => p.CreatedAt)
-            .Select(p => new PostListItemDTO(p.Id, p.Title, p.Creator.Username, p.CreatedAt))
+            .ThenByDescending(p => p.Id)
             .ToPagedResultAsync(filter.Page, filter.PageSize);
     }
 }
 ```
 
+The business layer only knows the interface and maps the result to DTOs:
+
 ```csharp
-// registered as builder.Services.AddScoped<PostListQuery>();
-var result = await postListQuery.ExecuteAsync(new PostFilter { Title = search, Page = page });
+// Business layer, registered as builder.Services.AddScoped<IPostListQuery, PostListQuery>();
+public class PostService(IPostListQuery postListQuery) : IPostService
+{
+    public async Task<PagedResult<PostListItemDto>> SearchAsync(string? title, int page)
+    {
+        var result = await postListQuery.ExecuteAsync(new PostFilter { Title = title, Page = page });
+        return result.Map(post => post.Adapt<PostListItemDto>());
+    }
+}
 ```
 
 - **One place** for one query: adding a new filter means one new property and one `if`
 - **Repositories stay small**: CRUD for one entity. Complex reads go into query objects
-- **Easy to test**: give it a filter, check the result
+- **Easy to test**: the service depends on `IPostListQuery`, which can be mocked like `IUnitOfWork`
 - Fits the search form directly: the form fields map to the filter properties
 
 # Today's Assignment
