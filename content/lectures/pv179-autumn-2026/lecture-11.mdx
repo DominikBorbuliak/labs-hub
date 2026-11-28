@@ -1,15 +1,346 @@
 ---
-title: "Logging (Serilog), Validation, Query"
-description: "Implementing structured logging with Serilog, adding robust validation to applications, and building efficient query mechanisms for data retrieval."
+title: "Logging with Serilog and Validation"
+description: "Milestone 2 grading, logging with Serilog (setup, basic configuration in appsettings.json and log levels), why and where to validate input, and validating DTOs in the business layer with FluentValidation."
 order: 11
 recommendedStudyFrom: "2026-11-30"
 recommendedStudyTo: "2026-12-06"
-availableFrom: "2026-11-30"
+availableFrom: "2026-11-28"
 tags:
+  - milestone
+  - logging
   - serilog
   - validation
-  - query
+  - fluentvalidation
 ---
 
-> [!WARNING]
-> Work in progress.
+# Agenda
+
+1. Milestone 2
+2. Serilog
+3. Validation
+4. FluentValidation
+5. Today's Assignment
+
+# Milestone 2
+
+All **Milestone 2** submissions are **graded**.
+
+> [!IMPORTANT]
+> If you have any questions about your evaluation or want to discuss anything, reach out as usual: at the **seminar**, on **Discord** or by **email**.
+
+# Serilog
+
+[Serilog](https://serilog.net/) is a popular **logging library** for .NET. You keep using `ILogger<T>` in your code as before, Serilog only replaces what happens **behind** it:
+
+- **Structured logging**: the values from message templates (lecture 4) are stored as separate, searchable properties
+- **Sinks**: where the logs go. Console, file, [Seq](https://datalust.co/seq), Elasticsearch, ... and several at once
+- **Configuration in `appsettings.json`**: change levels and sinks without recompiling
+
+## Setup
+
+```bash
+dotnet add package Serilog.AspNetCore
+```
+
+In `Program.cs` of the presentation layer:
+
+```csharp
+builder.Services.AddSerilog(config => config.ReadFrom.Configuration(builder.Configuration));
+
+var app = builder.Build();
+
+app.UseSerilogRequestLogging(); // one log line per HTTP request
+```
+
+## Configuration
+
+Serilog reads its own **`Serilog`** section in `appsettings.json` (the `Logging` section is then ignored, so remove it):
+
+```json
+{
+  "Serilog": {
+    "MinimumLevel": {
+      "Default": "Information",
+      "Override": {
+        "Microsoft.AspNetCore": "Warning",
+        "Microsoft.EntityFrameworkCore": "Warning"
+      }
+    },
+    "WriteTo": [
+      { "Name": "Console" },
+      {
+        "Name": "File",
+        "Args": { "path": "logs/log-.txt", "rollingInterval": "Day" }
+      }
+    ]
+  }
+}
+```
+
+- `Default` is the minimum level for everything, `Override` changes it for specific namespaces (here less noise from ASP.NET Core and EF Core)
+- `rollingInterval: Day` creates a new file every day (`log-20261130.txt`)
+
+## Log Levels
+
+| Serilog       | `ILogger` method | Use for                                                        |
+| ------------- | ---------------- | -------------------------------------------------------------- |
+| `Verbose`     | `LogTrace`       | Very detailed tracing, almost never enabled                    |
+| `Debug`       | `LogDebug`       | Details useful while developing                                |
+| `Information` | `LogInformation` | Normal events: post created, user registered                   |
+| `Warning`     | `LogWarning`     | Something unexpected, but the app continues: retry, fallback   |
+| `Error`       | `LogError`       | An operation failed: exception, external service not available |
+| `Fatal`       | `LogCritical`    | The whole app can't continue                                   |
+
+Only events **at or above** the minimum level are written. With `Default: Information`, `LogDebug` calls do nothing.
+
+> [!CAUTION]
+> **Never log sensitive data**: passwords, tokens, personal data you don't need.
+
+> [!TIP]
+> Everything else (more sinks, enrichers, destructuring objects, ...) is in the documentation: [Serilog.AspNetCore](https://github.com/serilog/serilog-aspnetcore) · [Serilog wiki](https://github.com/serilog/serilog/wiki)
+
+# Validation
+
+## Why?
+
+**Never trust input.** Everything that comes from outside (forms, query strings, API requests, files) can be wrong, by mistake or on purpose:
+
+- **Data integrity**: an empty title, a negative price or an end date before the start date shouldn't get into the database
+- **Security**: limits on length and format stop oversized or malicious input early
+- **User experience**: a clear message next to the field (_"Title is required"_) instead of an error page
+
+## Kinds of Rules
+
+| Kind                   | Examples                                                       | Needs                                    |
+| ---------------------- | -------------------------------------------------------------- | ---------------------------------------- |
+| **Format / syntax**    | Required, max length, range, email format, regex               | Only the input                           |
+| **Between properties** | `ConfirmPassword` equals `Password`, `EndsAt` after `StartsAt` | The whole object                         |
+| **Business rules**     | Title must be unique, a user can't follow themselves           | Data from the database, the current user |
+
+## Where?
+
+| Layer            | How                                                   | Purpose                                     |
+| ---------------- | ----------------------------------------------------- | ------------------------------------------- |
+| **Client**       | HTML attributes, `_ValidationScriptsPartial`          | Only **user comfort**, can be turned off    |
+| **Presentation** | Data annotations on view models, `ModelState.IsValid` | Shape of the form: required, length, format |
+| **Business**     | Validators of the DTOs (e.g. FluentValidation)        | **All rules**, the source of truth          |
+| **Database**     | `NOT NULL`, max length, unique index, foreign keys    | The last line of defense                    |
+
+> [!IMPORTANT]
+> The business layer is the place that **must** validate. It doesn't know who calls it: an MVC controller today, an API or a background job tomorrow. If the rules only live in the view models, the other callers skip them.
+
+## Data Annotations
+
+You already know them from lectures 5 and 9:
+
+```csharp
+public record PostCreateDto(
+    [Required, MaxLength(100)] string Title,
+    [Required] string Content);
+```
+
+They are fine for simple cases, but:
+
+- Only **simple** rules. Rules between properties or with a database query need `IValidatableObject` or custom attributes, which gets messy quickly
+- The rules are **mixed into the model**, and attributes can't use dependency injection
+- Outside MVC (e.g. in a service) **nobody runs them** automatically
+- Hard to test on their own
+
+# FluentValidation
+
+[FluentValidation](https://docs.fluentvalidation.net/) is a library where the rules for one class live in a separate **validator** class, written with a fluent API.
+
+## Packages
+
+In the business layer:
+
+```bash
+dotnet add package FluentValidation
+dotnet add package FluentValidation.DependencyInjectionExtensions
+```
+
+## Writing a Validator
+
+```csharp
+// Business layer
+public record PostCreateDto(string Title, string Content, IReadOnlyList<string> Tags);
+
+public class PostCreateDtoValidator : AbstractValidator<PostCreateDto>
+{
+    public PostCreateDtoValidator(IUnitOfWork unitOfWork)
+    {
+        RuleFor(p => p.Title)
+            .Cascade(CascadeMode.Stop) // stop at the first failed rule
+            .NotEmpty()
+            .MaximumLength(100)
+            .MustAsync(async (title, ct) => !await unitOfWork.Posts.ExistsWithTitleAsync(title, ct))
+            .WithMessage("A post with this title already exists.");
+
+        RuleFor(p => p.Content)
+            .NotEmpty()
+            .WithMessage("The post must have some content.");
+
+        RuleFor(p => p.Tags)
+            .Must(tags => tags.Count <= 5)
+            .WithMessage("A post can have at most 5 tags.");
+
+        RuleForEach(p => p.Tags)
+            .NotEmpty()
+            .MaximumLength(30);
+    }
+}
+```
+
+- Every built-in rule has a **default message** (`'Title' must not be empty.`), `WithMessage` replaces it
+- `CascadeMode.Stop` skips the database query when the title is empty or too long
+- `MustAsync` can do anything, here it uses a repository method of the DAL (`ExistsWithTitleAsync` is an example, add your own)
+- Two requests can pass the uniqueness check at the same time, so keep a **unique index** in the database as well
+
+Rules between properties and conditional rules:
+
+```csharp
+public class RegisterDtoValidator : AbstractValidator<RegisterDto>
+{
+    public RegisterDtoValidator()
+    {
+        RuleFor(r => r.Email).NotEmpty().EmailAddress();
+
+        RuleFor(r => r.Password).NotEmpty().MinimumLength(8);
+
+        RuleFor(r => r.ConfirmPassword)
+            .Equal(r => r.Password)
+            .WithMessage("Passwords do not match.");
+
+        RuleFor(r => r.Website)
+            .Must(url => Uri.TryCreate(url, UriKind.Absolute, out _))
+            .When(r => !string.IsNullOrEmpty(r.Website)); // only when filled in
+    }
+}
+```
+
+## Registration
+
+```csharp
+// registers every validator in the assembly as IValidator<T> (scoped by default)
+builder.Services.AddValidatorsFromAssemblyContaining<PostCreateDtoValidator>();
+```
+
+## Using the Validator
+
+Inject `IValidator<T>` into the service and validate **before** anything is saved:
+
+```csharp
+public class PostService(IUnitOfWork unitOfWork, IValidator<PostCreateDto> validator) : IPostService
+{
+    public async Task<int> CreateAsync(PostCreateDto dto, CancellationToken ct = default)
+    {
+        await validator.ValidateAndThrowAsync(dto, ct); // throws ValidationException when invalid
+
+        var post = dto.Adapt<Post>();
+        unitOfWork.Posts.Add(post);
+        await unitOfWork.SaveChangesAsync(ct);
+
+        return post.Id;
+    }
+}
+```
+
+`ValidateAsync` returns a `ValidationResult` (`IsValid`, `Errors`) instead of throwing, if you prefer to return the errors.
+
+## Showing the Errors in MVC
+
+The controller catches the exception and moves the errors into `ModelState`, so the form shows them exactly like the errors from data annotations:
+
+```csharp
+[HttpPost]
+[ValidateAntiForgeryToken]
+public async Task<IActionResult> Create(CreatePostViewModel model)
+{
+    if (!ModelState.IsValid)
+    {
+        return View(model);
+    }
+
+    try
+    {
+        var id = await postService.CreateAsync(model.Adapt<PostCreateDto>());
+        return RedirectToAction(nameof(Detail), new { id });
+    }
+    catch (ValidationException ex)
+    {
+        foreach (var error in ex.Errors)
+        {
+            ModelState.AddModelError(error.PropertyName, error.ErrorMessage);
+        }
+
+        return View(model);
+    }
+}
+```
+
+- `error.PropertyName` is the name in the **DTO**. When it's the same in the view model, the error is shown by `asp-validation-for` next to the field, otherwise only in `asp-validation-summary="All"`
+- Use `FluentValidation.ValidationException`. There is also `System.ComponentModel.DataAnnotations.ValidationException` with the same name
+
+> [!NOTE]
+> You may find the package `FluentValidation.AspNetCore`, which ran the validators automatically during model binding. It's **deprecated**: it only works in MVC, doesn't support async rules, and hides where validation happens. Call the validators **explicitly**, as above.
+
+## Testing Validators
+
+Validators are plain classes, so they are easy to unit test. `FluentValidation.TestHelper` (included in the main package) adds helpers for it:
+
+```csharp
+[Fact]
+public async Task Validate_EmptyContentAndTakenTitle_HasErrors()
+{
+    // Arrange
+    var unitOfWork = new Mock<IUnitOfWork>();
+    unitOfWork
+        .Setup(u => u.Posts.ExistsWithTitleAsync("Taken", It.IsAny<CancellationToken>()))
+        .ReturnsAsync(true);
+    var validator = new PostCreateDtoValidator(unitOfWork.Object);
+
+    // Act
+    var result = await validator.TestValidateAsync(new PostCreateDto("Taken", "", []));
+
+    // Assert
+    result.ShouldHaveValidationErrorFor(p => p.Title);
+    result.ShouldHaveValidationErrorFor(p => p.Content);
+    result.ShouldNotHaveValidationErrorFor(p => p.Tags);
+}
+```
+
+> [!TIP]
+> [FluentValidation documentation](https://docs.fluentvalidation.net/) · [Built-in validators](https://docs.fluentvalidation.net/en/latest/built-in-validators.html) · [MS Learn: Model validation](https://learn.microsoft.com/en-us/aspnet/core/mvc/models/validation)
+
+# Today's Assignment
+
+- You can download today's assignment here: [Seminar-11](https://gitlab.fi.muni.cz/pv179/seminar-11-2026-serilog-and-validation-query)
+- Follow the instructions in the assignment
+- I'll go around and check how you're doing
+
+> [!IMPORTANT]
+> Feel free to ask any questions or ask for help at any point!
+
+# Summary
+
+✓ Milestone 2 grading communicated
+
+✓ Serilog introduced, set up and configured in `appsettings.json`
+
+✓ Log levels and minimum levels explained
+
+✓ Why, what and where to validate explained
+
+✓ Data annotations compared with FluentValidation
+
+✓ DTOs validated in the business layer with FluentValidation, errors shown in MVC
+
+✓ Validators unit tested
+
+✓ Today's assignment downloaded
+
+> [!NOTE]
+> **Next time:** to be announced.
+
+> [!IMPORTANT]
+> Any questions?
