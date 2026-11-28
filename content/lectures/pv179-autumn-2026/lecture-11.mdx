@@ -237,7 +237,7 @@ public class PostService(IUnitOfWork unitOfWork, IValidator<PostCreateDto> valid
         await validator.ValidateAndThrowAsync(dto, ct); // throws ValidationException when invalid
 
         var post = dto.Adapt<Post>();
-        await unitOfWork.Posts.AddAsync(post, ct);
+        unitOfWork.Posts.Add(post);
         await unitOfWork.SaveChangesAsync(ct);
 
         return post.Id;
